@@ -299,11 +299,12 @@ npm run diagnose # 启动独立自测页 http://127.0.0.1:8940/diagnose/
 | --- | --- |
 | 输入框下方没有「技能」按钮 | `conversation.input.right` 是会话级槽位，尚未进入会话时不渲染。改从 **设置 → 技能** 进入 |
 | 同时开多个会话时应用到了错的会话 | 输入框入口拿不到会话 id，依赖「最近活跃会话」。从 **设置 → 技能** 进入可精确命中 |
-| 卡片列表为空 | 技能没放在已识别的技能根目录（见上文表格）。放置后刷新 |
+| 卡片列表为空 | 技能没放在已识别的技能根目录（见上文表格）。面板会列出本次扫描过的目录，注意看哪个标红 |
 | 卡片没有插画 | 目录内没有 `cover.*` / `preview.*` 文件。用「图片」按钮上传或填 URL |
 | 没有 3D 效果 | WebGL 不可用、three.js 加载失败或系统开了「减弱动态效果」—— 属自动降级，功能不受影响 |
 | 弹窗一闪而过 / 设置空白 | 先跑 `npm run diagnose` 打开 `http://127.0.0.1:8940/diagnose/`，看诊断日志两行是否都是 ✅。❌ 则把红字与 F12 Console 报错反馈到 [Issues](https://github.com/baobao1994/dsh-skill-cards/issues) |
 | 装上后其它插件全没了 | 手改了 profile 的 `package.json`。用官方安装器重新添加，见[安装](#-安装) |
+| **升级后改动没生效** | pnpm 因 `^版本号` 已满足而静默跳过（输出 `Already up to date`）。必须先 `remove` 再 `add`，见 [CONTRIBUTING](CONTRIBUTING.md#升级到新版本后先确认真的换了) |
 
 ### 单独自测 client.js
 

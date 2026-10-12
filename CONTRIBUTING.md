@@ -31,6 +31,48 @@ CLI="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" 
 
 改完 `lib/` 需重启 DSH；只改 `client/` 刷新页面即可。
 
+### 升级到新版本后，先确认真的换了
+
+**升级同样必须 `remove` 再 `add`。** 这一点最容易踩：
+
+```bash
+# profile 里是 "dsh-skill-cards": "^1.0.0"，而 ^1.0.0 已经包含 1.0.1
+"$CLI" plugin --profile desktop add dsh-skill-cards@1.0.1
+# → Already up to date —— pnpm 认为 ^1.0.0 已被 1.0.1 满足，什么也没做
+```
+
+命令**看起来成功了**（退出码 0、无报错），但 `node_modules` 里仍是旧版本。正确做法：
+
+```bash
+"$CLI" plugin --profile desktop remove dsh-skill-cards
+"$CLI" plugin --profile desktop add dsh-skill-cards@1.0.1
+```
+
+### 「改了没生效」时，先查版本再改代码
+
+这是本项目最容易浪费时间的地方。**在根据现象修改任何代码之前，先确认宿主实际加载的是哪一份：**
+
+```bash
+# macOS
+node -p "require('$HOME/.dsh/profiles/desktop/node_modules/dsh-skill-cards/package.json').version"
+```
+
+```powershell
+# Windows
+$p = "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\dsh-skill-cards"
+(Get-Content "$p\package.json" | ConvertFrom-Json).version
+```
+
+再确认文件内容确实是新版本（以 `max-height:82vh` 为例，它是 1.0.1 才有的）：
+
+```bash
+grep -c "max-height:82vh" ~/.dsh/profiles/desktop/node_modules/dsh-skill-cards/client/client.js
+```
+
+**为什么强调这一步：** 本地编辑项目目录里的源码，**不会**影响已安装的 npm 包或 `link:` 软链指向的内容。开发时改了文件、刷新页面看到变化，容易误以为是宿主加载了新代码——实际上可能一直在跑几个月前的旧版本。真实案例：设置页白底问题连续三次改代码都不生效，最终发现两个平台的 `node_modules` 里装的都还是最初的 1.0.0，修复代码从未被加载过。
+
+**判断口诀：** 现象与预期不符时，先怀疑「跑的不是你以为的那份代码」，而不是「我的修复逻辑有问题」。
+
 ---
 
 ## 提交前必跑
