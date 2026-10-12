@@ -1,0 +1,6 @@
+# dsh-skill-cards bundle patch: inserts this plugin into a profile's layer stack.
+# 安装方式：`dsh plugin --profile web add <本仓库路径或 npm 包名>`。
+# 行名用包名（browser roster 只认包名）。
+- insert:
+    - id: dsh-skill-cards
+      name: 'dsh-skill-cards'

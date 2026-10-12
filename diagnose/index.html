@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>dq 诊断 — dsh-skill-cards</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body{font-family:ui-sans-serif,system-ui;background:#0f1420;color:#e5e9f0;margin:0;padding:24px;max-width:1200px}
+  h1{font-size:16px} .row{display:flex;gap:16px}
+  pre {white-space:pre-wrap;font-family:monospace;font-size:13px;background:#111827;border:1px solid #26304a;padding:16px;border-radius:8px;min-height:40px}
+  .ok{color:#4ade80}.bad{color:#f87171}
+  .slot{background:#0b1020;border:1px solid #26304a;border-radius:8px;padding:12px;min-height:120px;margin-top:8px}
+</style>
+</head><body>
+<h1>技能卡片诊断页（脱离 DSH，验证 client.js 自身能否渲染）</h1>
+<p>两区都应出现一张卡片「claude-md-improver」，且下方日志两行都是 <span class="ok">✅</span>、无红色 <span class="bad">❌</span>。</p>
+<div style="display:flex;gap:24px">
+  <div style="flex:1"><b>① shell.overlay（弹窗入口）</b><div class="slot" id="overlay-slot"></div></div>
+  <div style="flex:1"><b>② settings.section（设置入口）</b><div class="slot" id="settings-slot"></div></div>
+</div>
+<p style="margin-top:16px"><b>诊断日志：</b></p>
+<pre id="log"></pre>
+<script>
+// React/ReactDOM are staged locally by server.mjs from node_modules (they are
+// third-party bundles and are NOT committed). If missing, fall back to the CDN
+// so the diagnostic still runs. Always open this page through
+// `npm run diagnose` — a bare file:// page cannot load cross-file scripts.
+(function () {
+  function load(url, fallback, cb) {
+    var s = document.createElement('script')
+    s.src = url
+    s.onerror = function () {
+      var f = document.createElement('script'); f.src = fallback; f.onload = cb; document.head.appendChild(f)
+    }
+    s.onload = cb
+    document.head.appendChild(s)
+  }
+  load('./react.js', 'https://unpkg.com/react@18/umd/react.production.min.js', function () {
+    load('./react-dom.js', 'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js', function () {
+      window.__reactReady = true
+    })
+  })
+})()
+</script>
+<script>
+// DSH module contract: client.js calls window.__ModuleLoader__.load({id, factory}).
+window.__ModuleLoader__ = { load: function(spec){ window.__spec = spec } }
+</script>
+<script>
+var logEl = document.getElementById('log')
+function L(txt, bad){
+  var line = (bad===true?'❌ ':bad===false?'✅ ':'') + txt
+  logEl.textContent = logEl.textContent + '\n' + line
+  if(bad===true) console.error('[diag]', txt)
+}
+L('react='+(typeof window.React)+' react-dom='+(typeof window.ReactDOM), (window.React&&window.ReactDOM)?false:undefined)
+window.addEventListener('error', function(e){ L('window.onerror: '+e.message, true) })
+window.addEventListener('unhandledrejection', function(e){ L('unhandledrejection: '+(e.reason&&e.reason.message||e.reason), true) })
+</script>
+<script src="../client/client.js"></script>
+<script>
+// React loads asynchronously (local copy, CDN fallback), so wait for it.
+function whenReactReady(cb){
+  if(window.React && window.ReactDOM) return cb()
+  var n=0
+  var t=setInterval(function(){
+    if(window.React && window.ReactDOM){clearInterval(t);cb();return}
+    if(++n>100){clearInterval(t);L('等待 React 超时', true)}
+  },100)
+}
+whenReactReady(runDiagnostic)
+function runDiagnostic(){
+try {
+  var spec = window.__spec
+  if(!spec){ L('未捕获到 ModuleLoader.load（client.js 未加载成功？）', true); throw new Error('no spec') }
+  if(!(window.React && window.ReactDOM)){ L('已加载 client.js，但 React 环境不存在，跳过渲染', true); throw new Error('no react') }
+
+  var mod = spec.factory(function(name){
+    if(name==='react') return window.React
+    throw new Error('unexpected require('+name+')')
+  })
+  var registerCalls = []
+  var dict = null
+  var slots = {
+    inject: function(name, cb){ cb() },
+    register: function(meta, component){ registerCalls.push({ meta: meta, component: component }); return function(){} }
+  }
+  var locale = {
+    register: function(ns, d){ dict = d },
+    bind: function(ns){ return function(key, params){ var v = dict && dict[key]; return (typeof v==='function') ? v(params) : v } }
+  }
+  mod.apply({ slots: slots, locale: locale, effect: function(fn){ fn() } })
+  L('apply() 成功')
+
+  var overlay = registerCalls.find(function(r){return r.meta.name==='shell.overlay'})
+  var settings = registerCalls.find(function(r){return r.meta.name==='settings.section'})
+  if(!overlay || !settings){
+    L('未找到 overlay/settings 注册（注册项：'+(registerCalls.map(function(r){return r.meta.name})).join(', ')+'）', true)
+  } else {
+    var store = overlay.meta.inject().store
+    window.fetch = function(url){
+      if(String(url).indexOf('/skills')>=0)
+        return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({
+          ok:true, skills:[
+            { name:'claude-md-improver', description:'改进 CLAUDE.md', source:'user-dsh', label:'Claude MD', hasCover:false, coverUrl:null,
+              custom:null, stats:{uses:1}, category:'ai', suggestedCategory:'ai' },
+            { name:'i18n-demo', description:'demo desc', source:'user-dsh', label:'Demo', hasCover:false, coverUrl:null,
+              custom:{ image:null, title:null, description:null, i18n:{ zh:'演示卡', zhDesc:'中文描述内容' } }, stats:{uses:7}, category:'ai', suggestedCategory:'ai' },
+            { name:'theme-factory', description:'Toolkit for styling artifacts with a theme.', source:'user-dsh', label:'TF', hasCover:false, coverUrl:null,
+              custom:{ image:null, title:null, description:null, i18n:{ zh:'主题工厂', zhDesc:'为幻灯片、文档、报告、网页等作品套用主题。' } }, stats:{uses:0}, category:'design', suggestedCategory:'design' }
+          ], categories:{ ai:{label:'AI'} } }) } })
+      return Promise.resolve({ ok:false })
+    }
+    ReactDOM.render(React.createElement(overlay.component, {}), document.getElementById('overlay-slot'))
+    store.open()
+    setTimeout(function(){
+      var oh = document.getElementById('overlay-slot').innerHTML || ''
+      var cards = (oh.match(/dsh-sc-name/g)||[]).length
+      var ok = cards > 0
+      L('弹窗渲染卡片: '+cards+(ok?' ✅':('（应为 1，实际 '+cards+'）')), !ok)
+    }, 900)
+    ReactDOM.render(React.createElement(settings.component, { useSessions: function(){ return undefined } }), document.getElementById('settings-slot'))
+    setTimeout(function(){
+      var sh = document.getElementById('settings-slot').innerHTML || ''
+      var cards = (sh.match(/dsh-sc-name/g)||[]).length
+      var ok = cards > 0
+      L('设置面板渲染卡片: '+cards+(ok?' ✅':('（应为 1，实际 '+cards+'）')), !ok)
+      L('完成。两行都是 ✅ → client.js 在真实 React 下能渲染；若你在 DSH 里仍闪退，问题在 DSH 宿主侧。')
+    }, 1000)
+  }
+} catch(err) {
+  L('页面脚本异常: '+err.message, true)
+  console.error(err)
+}
+}
+</script>
+</body></html>

@@ -1,0 +1,70 @@
+{
+  "name": "dsh-skill-cards",
+  "version": "1.0.0",
+  "description": "技能卡片 — 在对话框底部/侧边栏放一个「技能」入口，点开是以图片卡片呈现的技能浏览弹窗，支持自定义封面图、单选/多选，选中后仅对本次会话生效。Skill Cards for DeepSeek Harness.",
+  "type": "module",
+  "main": "lib/index.js",
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "skill",
+    "skills",
+    "skill-cards",
+    "技能卡片"
+  ],
+  "license": "MIT",
+  "author": "baobao1994",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/baobao1994/dsh-skill-cards.git"
+  },
+  "homepage": "https://github.com/baobao1994/dsh-skill-cards#readme",
+  "files": [
+    "lib",
+    "client",
+    "vendor",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check lib/index.js && node --check lib/skills-scan.js && node --check lib/http.js && node --check client/client.js",
+    "diagnose": "node diagnose/server.mjs"
+  },
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.2.0-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

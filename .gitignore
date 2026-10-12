@@ -1,0 +1,9 @@
+node_modules/
+*.log
+.DS_Store
+
+# Third-party React bundles staged locally by `npm run diagnose` from
+# node_modules (see diagnose/server.mjs). Not committed: ~1 MB of vendored code.
+# The diagnostic page falls back to a CDN when they are absent.
+diagnose/react.js
+diagnose/react-dom.js
