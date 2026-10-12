@@ -7,3 +7,8 @@ node_modules/
 # The diagnostic page falls back to a CDN when they are absent.
 diagnose/react.js
 diagnose/react-dom.js
+
+# Personal skill-card data (custom covers, titles, categories, use counts)
+# exported from ~/.dsh/ as a backup. Never public: it is user-specific and
+# not part of the published npm package (see `files` in package.json).
+local-config-backup/
