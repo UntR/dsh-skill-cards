@@ -1,0 +1,206 @@
+# 贡献指南
+
+感谢你愿意改进 dsh-skill-cards。这个插件的形态比较特殊——**没有构建步骤**，一份 `client/client.js` 手工维护，因此下面几条约束比一般项目更重要。
+
+本文档为中文版，英文说明见代码注释与 [README](README.md)。
+
+---
+
+## 开发环境
+
+需要 **Node.js ≥ 20**（`engines` 已声明）。
+
+```bash
+git clone https://github.com/baobao1994/dsh-skill-cards.git
+cd dsh-skill-cards
+npm install      # 无运行时依赖，仅为 diagnose 页拉取 React UMD
+```
+
+### 用本地目录安装到 DSH
+
+开发时不要反复发 npm 版本，直接指向本地目录：
+
+```bash
+CLI="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"   # macOS 桌面版
+"$CLI" plugin --profile desktop add "/absolute/path/to/dsh-skill-cards"
+```
+
+> ⚠️ **务必用官方安装器。** DSH 把 `package.json`、`pnpm-lock.yaml`、`node_modules`、`bundles` 当作一个原子事务，手改其中一部分会导致启动时判定不一致，**写入最小安全配置**——表现为其它插件全部消失、配置被重置。
+
+> ⚠️ **切换安装来源必须先 `remove` 再 `add`。** `dsh plugin add` 直接透传给 pnpm，而 `link:` 依赖与 npm 包名在 pnpm 眼里是同一个包，已存在时会被判为「已满足」而**什么也不做**（输出 `Already up to date`）。从本地开发版切回 npm 版，或反过来，都要先移除。
+
+改完 `lib/` 需重启 DSH；只改 `client/` 刷新页面即可。
+
+---
+
+## 提交前必跑
+
+```bash
+npm run check   # node --check 全部源码
+npm test        # node --test，当前 66 个用例
+```
+
+两个都必须通过。新增功能请同时补 `test/` 下的用例。
+
+---
+
+## 架构约束
+
+这五条是踩过坑总结出来的，**违反任何一条都可能产生"看起来正常但实际静默失效"的 bug**。
+
+### 1. 宿主端只 `inject = ['webServer']`
+
+```js
+export const inject = ['webServer']   // ✅
+```
+
+`skills` 是 **agent 级**服务。在根作用域 `await` 它会让 Cordis 的 `apply()` 永久挂起，导致 HTTP 路由**从未注册**——症状极具迷惑性：按钮出现了（客户端半边独立加载），但每个请求都 404。
+
+需要 `agents` / `skills` 时用机会式读取，它在服务缺席时返回 `undefined` 而不会挂起 fiber：
+
+```js
+const agents = ctx.get('agents')          // ✅
+```
+
+### 2. 路由前缀不带尾部斜杠
+
+```js
+const API_PREFIX = '/plugins/dsh-skill-cards'     // ✅ 不能是 '/plugins/dsh-skill-cards/'
+```
+
+宿主用 `pathname === prefix || pathname.startsWith(prefix + '/')` 匹配前缀路由。带尾部斜杠会要求请求路径里出现**双斜杠**，于是所有路由静默 404，而日志里什么都看不到。
+
+另外 DSH 只转发 `/api/*` 和 `/plugins/*`，选别的前缀会在到达插件前就被 shell 拦掉。
+
+### 3. 绝不把 base64 写进配置
+
+图片以**文件**形式存在 `~/.dsh/skill-cards-images/`，配置里只存同源服务 URL：
+
+```json
+{ "image": "/plugins/dsh-skill-cards/image?id=a1b2c3....png" }
+```
+
+`POST /cards` 会主动拒绝 `data:image/...`。一条 base64 图片就能把 `skill-cards.json` 撑到几百 KB。
+
+### 4. `client/client.js` 不走构建
+
+- JSX 需手工写成 `React.createElement`（文件里 `const e = React.createElement`）
+- CSS 全部内联在 `CSS` 模板字符串中
+- ⚠️ **CSS 模板字符串内绝对不能出现反引号。** 注释里写 `` `foo` `` 会提前闭合外层模板字符串，报 `SyntaxError` 且破坏整个客户端模块。写注释用普通引号。
+
+### 5. 只注入到会话作用域
+
+```js
+const skills = agent.ctx?.get?.('skills')          // ✅
+skills.register({ name, description, content, resourceBase, invocation, source })
+```
+
+注册到**宿主全局** skills 服务会让技能泄漏进所有会话。`register()` 返回的 disposer **必须保存**（`sessionId → skillName → dispose`），否则技能无法撤销——早期版本把 disposer 丢掉了，导致"撤销"只能靠重启会话。
+
+agent 移除时要清理整张表，否则 UI 会列出已经死掉的"幽灵技能"。
+
+---
+
+## 客户端加载契约
+
+```js
+factory: (require) => {
+  const module = { exports: {} }
+  const exports = module.exports
+  Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
+  // ...
+  return exports
+}
+```
+
+`factory` **只接收 `require` 一个参数**，DSH 不会传入 `module` / `exports`，必须自己造。
+
+写成 `factory: (require, module) => { const exports = module.exports }` 会在启动时抛 `Cannot read properties of undefined (reading 'exports')`，进而触发 `web boot: 1 entry did not activate`，**最终导致上面说的 profile 配置重置**。
+
+---
+
+## UI 改动请覆盖三种情形
+
+插件有一条完整的降级链，动 UI 时请至少各验一次：
+
+1. **WebGL 可用** —— 3D 卡片墙 + 星云背景 + 悬停视差
+2. **WebGL 不可用 / three.js 加载失败** —— 退回平面网格，搜索/多选/改图/应用必须全部照常可用
+3. **系统开启「减弱动态效果」** —— 跳过入场与抽卡动画，功能不受影响
+
+外加**弹窗**与**设置 → 技能**两个入口都要看——它们共享 `SkillsPanel` 组件但包裹层不同，CSS 上下文也不同（这是白底与滚动问题的来源）。
+
+### flex 滚动容器的常见坑
+
+某个子元素要成为滚动容器，必须同时满足：`flex:1 1 auto` + `min-height:0` + **父链上有确定高度**。
+
+`height:100%` 在父容器无高度时会解析为 `auto`，此时 `overflow-y:auto` **永不触发**——内容撑开，真正的滚动变成宿主外层面板，表现为"只有最右侧滚动条能动，鼠标悬停卡片无反应"。必要时用 `max-height: Nvh` 给出确定高度。
+
+---
+
+## 自测工具
+
+```bash
+npm run diagnose    # → http://127.0.0.1:8940/diagnose/
+```
+
+脱离 DSH 用真实 React 渲染弹窗与设置面板。**改动 `client/client.js` 后请先跑这个**，能立刻区分"插件自身坏了"还是"宿主侧问题"。
+
+页内诊断日志也可在真实 DSH 中开启：
+
+```js
+localStorage.setItem('dshSkillCardsDiag', '1')   // 或访问带 ?scDiag=1
+```
+
+它会打印卡背贴图的分层尺寸与加载状态——排查 3D 卡面塌缩类问题时非常有用。
+
+---
+
+## 提 Issue
+
+请附上：
+
+- DSH 版本、操作系统
+- 复现步骤
+- F12 → Console 的报错
+- **空列表问题请附面板里的"本次扫描的目录"报告**——它会直接显示哪个路径不存在或没有有效技能，比猜测有效得多
+- 若是扫描问题，可附上你的技能实际位置（注意先移除敏感信息）
+
+---
+
+## 提 PR
+
+1. 从 `main` 切分支：`git checkout -b fix/short-description`
+2. 改动 + 补测试
+3. `npm run check && npm test` 全绿
+4. 提交信息用中文，**写清「为什么」而不只是「改了什么」**——本项目的历史里，`fix: 移除全部 CSS color-mix（引擎兼容性根因）` 这类记录对后来者价值很高
+5. 中文 README 与代码注释保持同步
+
+### 发版（仅维护者）
+
+```bash
+npm version patch     # 或 minor / major
+npm publish --registry=https://registry.npmjs.org/
+```
+
+⚠️ **`--registry` 必须显式指定。** 若你的 `~/.npmrc` 指向 npmmirror 之类的镜像，发布需要覆盖成官方源。
+
+发布后把改动同步到 GitHub。npm 包名一旦发布即永久占用，同名同版本无法覆盖，只能发新的 patch/minor 版本——**发版前请务必在真实 DSH 中验证一遍**。
+
+---
+
+## 代码风格
+
+沿用现有风格，不引入新的格式化工具：
+
+- 2 空格缩进，单引号，无分号
+- 注释用中文，说明 **为什么** 而非复述代码
+- 导出函数带 JSDoc
+- 标识符用英文，UI 文案走 `STRINGS` 的 `zh` / `en` 双语表
+
+新增 UI 文案时**两种语言都要补**，缺一个会在切换语言时显示 `undefined`。
+
+---
+
+## 许可
+
+提交贡献即表示你同意该作品按 [MIT](LICENSE) 许可发布。
