@@ -6,10 +6,10 @@
 
 *以图片卡片浏览本机技能 · 自定义封面与卡名 · 智能分类 · 3D 立体卡片墙 · 抽卡揭示 · 一键注入当前会话*
 
-[![npm version](https://img.shields.io/badge/npm-0.1.0-c9a24b)](https://www.npmjs.com/package/dsh-skill-cards)
+[![npm version](https://img.shields.io/badge/npm-1.0.1-c9a24b)](https://www.npmjs.com/package/dsh-skill-cards)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org)
-[![tests](https://img.shields.io/badge/tests-62%20passing-brightgreen)](test/)
+[![tests](https://img.shields.io/badge/tests-66%20passing-brightgreen)](test/)
 
 一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件。在**聊天输入框下方**放一个「技能」按钮，同时在**设置 → 技能**里内嵌完整管理器，点开是一个以**图片卡片**呈现的技能浏览弹窗。选中技能后**仅对本次会话生效**——不动磁盘、不污染全局目录。
 
@@ -144,6 +144,35 @@ dsh plugin --profile web add "/absolute/path/to/dsh-skill-cards"
 
 每个技能是一个**直接包含 `SKILL.md` 的目录**（或扁平的 `<name>.md`）。`$DSH_HOME` 可覆盖默认的 `~/.dsh`。
 
+#### 技能放在别处？
+
+设置环境变量 `DSH_SKILL_CARDS_ROOTS` 指向任意目录，可同时指定多个：
+
+```bash
+# macOS / Linux 用 : 分隔
+export DSH_SKILL_CARDS_ROOTS="/opt/skills:$HOME/dotfiles/agent-skills"
+
+# Windows PowerShell 用 ; 分隔
+$env:DSH_SKILL_CARDS_ROOTS = "D:\skills;E:\dotfiles\skills"
+```
+
+与默认路径重复的项会被自动忽略，放心列出。
+
+#### 列表为空？先看扫描报告
+
+列表为空时，面板会直接列出**本次实际扫描过的每个目录**及其命中数量 —— 不存在的目录标红删除线。这样能立刻区分「目录不存在」和「目录存在但没有有效技能」：
+
+```
+本次扫描的目录：
+  ~/.agents/skills        无有效技能 · 0
+  ~/.claude/skills        不存在          ← 红色：这个目录压根没有
+  ~/.dsh/skills           无有效技能 · 0
+```
+
+技能名支持小写字母、数字、`-`、`_`、`.` 以及**大写字母** —— `GitHub`、`TDD` 这类来自其它 agent 的命名不会被静默丢弃。
+
+同一技能出现在多个目录时**只显示一次**，优先级为 DSH 用户目录 > `.agents` > `.claude` > 自定义 > 项目级。
+
 ### 封面图自动识别
 
 在技能目录（含 `SKILL.md` 的那一层）放下列任一文件名，即自动作为卡片插画：
@@ -164,7 +193,7 @@ cover.png   cover.jpg   cover.jpeg   cover.webp   cover.svg   preview.png   prev
 
 | 路由 | 说明 |
 | --- | --- |
-| `skills?cwd=<path>` | 已安装技能列表 + 合并后的分类表 |
+| `skills?cwd=<path>` | 已安装技能列表 + 合并后的分类表 + **扫描报告**（每个根目录的 `exists` / `found`） |
 | `cards` | 全部自定义卡面配置 |
 | `stats` | 分类 / ★ 常用 / 使用次数 + 自建分类 |
 | `cover?skill=<name>` | 技能目录内的封面图（无则 404） |
@@ -240,7 +269,7 @@ dsh-skill-cards/
 ├── client/
 │   └── client.js         # ── 浏览器端：入口按钮 + 设置面板 + 卡片浮层 + 3D 墙 + 出卡
 ├── diagnose/             # ── 脱离 DSH 的自测页（真实 React 渲染）
-└── test/                 # ── node:test 单测（62 个）
+└── test/                 # ── node:test 单测（66 个）
 ```
 
 ---
@@ -249,7 +278,7 @@ dsh-skill-cards/
 
 ```bash
 npm install      # 无运行时依赖，仅为 diagnose 页拉取 React UMD
-npm test         # node --test，62 个用例
+npm test         # node --test，66 个用例
 npm run check    # 对所有源码做 node --check 语法校验
 npm run diagnose # 启动独立自测页 http://127.0.0.1:8940/diagnose/
 ```
@@ -297,7 +326,7 @@ npm run diagnose # 启动独立自测页 http://127.0.0.1:8940/diagnose/
 npm run check && npm test
 ```
 
-- 新增功能同时补 `test/` 下的用例（当前 62 个）。
+- 新增功能同时补 `test/` 下的用例（当前 66 个）。
 - 遵守上方 **架构约束** 五条，尤其是会话作用域与路由前缀。
 - UI 改动请在支持 / 不支持 WebGL、以及「减弱动态效果」三种情形下各验一次。
 - 中文与英文 README 同步更新。

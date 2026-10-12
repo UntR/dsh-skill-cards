@@ -7,17 +7,101 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { scanRoot, readCover, userSkillRoots } from '../lib/skills-scan.js'
+import { scanRoot, readCover, userSkillRoots, scanInstalled, defaultDshHome } from '../lib/skills-scan.js'
 import { sameOrigin } from '../lib/http.js'
 
 test('userSkillRoots covers the real-world skill locations', () => {
   const home = '/Users/someone/.dsh'
-  const roots = userSkillRoots(home).map((r) => r.path)
+  const roots = userSkillRoots(home, {}).map((r) => r.path)
   // ~/.agents/skills is where the agent CLI actually installs skills; an earlier
   // version only scanned ~/.dsh/skills (usually absent) and listed nothing.
   assert.ok(roots.includes('/Users/someone/.agents/skills'), 'missing ~/.agents/skills')
   assert.ok(roots.includes('/Users/someone/.claude/skills'), 'missing ~/.claude/skills')
   assert.ok(roots.includes('/Users/someone/.dsh/skills'), 'missing ~/.dsh/skills')
+})
+
+test('DSH_SKILL_CARDS_ROOTS adds extra roots and never duplicates a default one', () => {
+  const home = '/Users/someone/.dsh'
+  const env = { DSH_SKILL_CARDS_ROOTS: '/opt/skills:/Users/someone/.agents/skills:/tmp/mine' }
+  const roots = userSkillRoots(home, env).map((r) => r.path)
+  assert.ok(roots.includes('/opt/skills'), 'custom root missing')
+  assert.ok(roots.includes('/tmp/mine'), 'custom root missing')
+  // Listing an already-known path must not produce a second entry, otherwise the
+  // same skill would be counted twice in the diagnostics report.
+  assert.equal(roots.filter((p) => p === '/Users/someone/.agents/skills').length, 1,
+    'a default root was duplicated by the env var')
+  assert.equal(new Set(roots).size, roots.length, 'duplicate roots present')
+})
+
+test('skill names with capitals or dots are kept', async () => {
+  // Real-world pools (notably ones installed by other agents) use names the old
+  // lowercase-only guard rejected silently, making a populated folder look empty.
+  const dir = mkdtempSync(join(tmpdir(), 'sc-name-'))
+  try {
+    for (const name of ['GitHub', 'TDD', 'my.skill', 'normal-skill']) {
+      const d = join(dir, name)
+      mkdirSync(d, { recursive: true })
+      writeFileSync(join(d, 'SKILL.md'), `---\nname: ${name}\ndescription: d\n---\n# x\n`)
+    }
+    const found = (await scanRoot(dir, 'test', 'test')).map((s) => s.name).sort()
+    assert.deepEqual(found, ['GitHub', 'TDD', 'my.skill', 'normal-skill'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('scanInstalled reports every scanned root so an empty result is explainable', async () => {
+  const base = mkdtempSync(join(tmpdir(), 'sc-diag-'))
+  try {
+    const home = join(base, '.dsh')
+    mkdirSync(home, { recursive: true })
+    const claude = join(base, '.claude', 'skills')
+    mkdirSync(claude, { recursive: true })
+    makeSkill(claude, 'demo', 'a demo skill', false)
+
+    const out = await scanInstalled(home, base)
+    assert.equal(out.skills.length, 1)
+    assert.equal(out.skills[0].name, 'demo')
+
+    const byPath = new Map(out.diagnostics.map((r) => [r.path, r]))
+    // A root that holds skills must report itself as existing with a count.
+    assert.equal(byPath.get(claude).exists, true)
+    assert.equal(byPath.get(claude).found, 1)
+    // A root that was never created must be reported as missing, which is the
+    // fact the empty-state UI needs and previously could not show.
+    assert.equal(byPath.get(join(home, 'skills')).exists, false)
+    assert.equal(byPath.get(join(home, 'skills')).found, 0)
+    // Every entry carries a path and a label for display.
+    for (const r of out.diagnostics) {
+      assert.equal(typeof r.path, 'string')
+      assert.equal(typeof r.label, 'string')
+    }
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+})
+
+test('scanInstalled dedupes the same skill found in several roots', async () => {
+  const base = mkdtempSync(join(tmpdir(), 'sc-dupe-'))
+  try {
+    const home = join(base, '.dsh')
+    const userDsh = join(home, 'skills')
+    const claude = join(base, '.claude', 'skills')
+    mkdirSync(userDsh, { recursive: true })
+    mkdirSync(claude, { recursive: true })
+    makeSkill(userDsh, 'shared', 'from dsh', false)
+    makeSkill(claude, 'shared', 'from claude', false)
+
+    const out = await scanInstalled(home, base)
+    const shared = out.skills.filter((s) => s.name === 'shared')
+    assert.equal(shared.length, 1, 'the same skill was listed twice')
+    // Precedence: the user-dsh root is consulted first and wins the collision.
+    assert.equal(shared[0].source, 'user-dsh')
+    // The per-root counts still reflect what each directory actually holds.
+    assert.equal(out.diagnostics.find((r) => r.path === claude).found, 1)
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
 })
 
 function makeSkill(root, name, description, withCover) {

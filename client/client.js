@@ -124,11 +124,29 @@ window.__ModuleLoader__.load({
 .dsh-sc-close:hover { background:rgba(201,162,75,.12); border-color:var(--sc-line); color:var(--sc-gold-hi); }
 
 /* ── inline panel (settings.section) ────────────────────────────────────── */
-/* The settings shell already provides the outer padding and scroll; the panel
-   fills the section and only its grid scrolls when the modal is used.
-   height:100% pins the toolbar in the settings scroll container (the modal is
-   a flex column, where percentage height is ignored and flex fills it). */
-.dsh-sc-panel { display:flex; flex-direction:column; min-height:0; flex:1 1 auto; height:100%; }
+/* The settings section renders this panel directly on the host's own surface —
+   there is NO .dsh-sc-modal behind it, so the panel must carry the playmat
+   background itself (it used to stay transparent and let the host's light
+   settings background show through, which read as a white page next to the
+   dark modal). Same gradient vocabulary as .dsh-sc-modal. */
+.dsh-sc-panel { display:flex; flex-direction:column; min-height:0; flex:1 1 auto;
+  height:100%; overflow:hidden;
+  /* height:100% resolves to auto inside the settings section (its parent
+     .dsh-sc-root has no definite height), which leaves .dsh-sc-stage with an
+     auto height — and overflow-y:auto never fires on an auto-height box. The
+     result was: cards grew with the content, the host's outer settings
+     scrollbar was the only thing that scrolled, and the wheel over the cards
+     did nothing. A vh cap gives the flex column a definite height in BOTH
+     contexts, so .dsh-sc-stage becomes the real scroll container. */
+  max-height:82vh;
+  background:
+    radial-gradient(140% 60% at 50% 0%, rgba(201,162,75,.10), transparent 62%),
+    linear-gradient(180deg, var(--sc-shell-2), var(--sc-shell) 42%, #131319);
+  color:var(--sc-ink);
+  border:1px solid var(--sc-line); border-radius:12px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07); }
+/* Inside the modal the panel IS the modal's inner area — no extra frame. */
+.dsh-sc-modal > .dsh-sc-panel { background:none; border:0; border-radius:0; box-shadow:none; }
 .dsh-sc-search-row { display:flex; align-items:center; gap:10px; padding:12px 16px 0; flex:none; }
 .dsh-sc-search-row .dsh-sc-search { flex:1 1 auto; }
 .dsh-sc-search-row .dsh-sc-title-count { flex:none; }
@@ -170,7 +188,11 @@ window.__ModuleLoader__.load({
    so cards stay clickable); the grid itself keeps its own height so its cards
    can take per-card 3D transforms. */
 .dsh-sc-stage { position:relative; flex:1 1 auto; min-height:0; overflow-y:auto;
-  overscroll-behavior:contain; padding:16px; }
+  overscroll-behavior:contain; padding:16px;
+  /* Wheel events over the 3D canvas/grid must scroll THIS stage, not the host's
+     outer settings scroller. Without this the cards never scroll with the mouse
+     and only the far-right page scrollbar moves. */
+  touch-action:pan-y; }
 .dsh-sc-fx { position:absolute; inset:0; width:100%; height:100%; pointer-events:none;
   z-index:0; opacity:0; transition:opacity .5s ease; }
 .dsh-sc-panel.fx .dsh-sc-fx { opacity:1; }
@@ -273,6 +295,24 @@ window.__ModuleLoader__.load({
   align-items:center; justify-content:center; padding:40px; text-align:center;
   color:var(--sc-ink-2); font-size:13px; }
 .dsh-sc-empty-hint { font-size:11.5px; color:var(--sc-ink-3); }
+/* Scanned-root report shown when no skills were found. A path the host never
+   saw is the single most useful thing to surface here: without it the hint
+   text is guesswork, and on a machine whose home directory resolves
+   differently the "no skills" case looks identical to a broken install. */
+.dsh-sc-roots { margin-top:14px; padding-top:12px; border-top:1px solid var(--sc-line-soft);
+  text-align:left; max-width:640px; margin-left:auto; margin-right:auto; }
+.dsh-sc-roots-label { font-size:11px; color:var(--sc-ink-3); margin-bottom:6px; letter-spacing:.02em; }
+.dsh-sc-roots ul { list-style:none; margin:0; padding:0; }
+.dsh-sc-roots li { display:flex; align-items:baseline; gap:8px; padding:3px 0;
+  font-size:11px; line-height:1.5; }
+.dsh-sc-roots code { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; word-break:break-all;
+  font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
+  color:var(--sc-ink-2); background:rgba(0,0,0,.28); border:1px solid var(--sc-line-soft);
+  border-radius:5px; padding:1px 6px; }
+.dsh-sc-roots li.missing code { color:var(--sc-ink-3); text-decoration:line-through;
+  text-decoration-color:rgba(232,112,90,.55); border-style:dashed; }
+.dsh-sc-roots-note { flex:none; color:var(--sc-danger); opacity:.85; }
+.dsh-sc-roots li.exists .dsh-sc-roots-note { color:var(--sc-ink-3); }
 .dsh-sc-err { color:var(--sc-danger); font-size:12px; padding:8px 16px 10px; flex:none;
   border-bottom:1px solid rgba(232,112,90,.25); background:rgba(232,112,90,.08); }
 
@@ -726,7 +766,10 @@ window.__ModuleLoader__.load({
         nav: '技能', title: '技能卡片', search: '搜索技能名称或描述…',
         loading: '正在读取本机技能…',
         empty: '还没有已安装的技能。',
-        emptyHint: '把技能放进 ~/.agents/skills（或 ~/.dsh/skills）后刷新。',
+        emptyHint: '把技能放进 ~/.agents/skills（或 ~/.dsh/skills）后刷新。技能放在别处？设置 DSH_SKILL_CARDS_ROOTS 环境变量指向它。',
+        scannedRoots: '本次扫描的目录：',
+        rootMissing: '不存在',
+        rootEmpty: '无有效技能 · ',
         noMatch: '没有匹配的技能。',
         noMatchHint: '换个关键词，或清空搜索框看全部。',
         selectAll: '全选', clear: '清空', selected: '已选', noneSelected: '未选择',
@@ -752,7 +795,10 @@ window.__ModuleLoader__.load({
         nav: 'Skills', title: 'Skill Cards', search: 'Search skill name or description…',
         loading: 'Reading local skills…',
         empty: 'No skills installed yet.',
-        emptyHint: 'Drop skills into ~/.agents/skills (or ~/.dsh/skills) and refresh.',
+        emptyHint: 'Drop skills into ~/.agents/skills (or ~/.dsh/skills) and refresh. Elsewhere? Point DSH_SKILL_CARDS_ROOTS at it.',
+        scannedRoots: 'Directories scanned:',
+        rootMissing: 'not found',
+        rootEmpty: 'no valid skills · ',
         noMatch: 'No skills match that search.',
         noMatchHint: 'Try another keyword, or clear the box to see everything.',
         selectAll: 'Select all', clear: 'Clear', selected: 'Selected', noneSelected: 'None selected',
@@ -2318,6 +2364,11 @@ ${draft}`
      * ------------------------------------------------------------------ */
     function SkillsPanel({ store, t, onApplyDone, onRequestClose }) {
       const [skills, setSkills] = useState(null)
+      // Which directories the host actually scanned, and how many skills each
+      // yielded. Shown only in the empty state, where the difference between
+      // "the folder does not exist" and "it exists but holds no SKILL.md" is
+      // otherwise impossible to tell from the panel alone.
+      const [roots, setRoots] = useState([])
       // Local overrides applied on top of the per-skill `custom` the host already
       // embeds in /skills. The host's read of skill-cards.json is the source of
       // truth; this map only reflects edits made in this session, avoiding a
@@ -2394,6 +2445,7 @@ ${draft}`
           // on the host), so a separate /cards call is redundant.
           const sk = await api('/skills')
           setSkills(sk.skills || [])
+          setRoots(Array.isArray(sk.roots) ? sk.roots : [])
           if (sk.categories && typeof sk.categories === 'object') setCatDefs(sk.categories)
           // The server payload is the source of truth: drop every local
           // optimistic override, or a stale one (e.g. an old reset/save made
@@ -2732,7 +2784,18 @@ ${draft}`
           : filtered.length === 0
             ? e('div', { className: 'dsh-sc-empty' },
                 e('div', null, skills.length === 0 ? t('empty') : t('noMatch')),
-                e('div', { className: 'dsh-sc-empty-hint' }, skills.length === 0 ? t('emptyHint') : t('noMatchHint')))
+                e('div', { className: 'dsh-sc-empty-hint' }, skills.length === 0 ? t('emptyHint') : t('noMatchHint')),
+                // Only meaningful when nothing at all was found: list what the
+                // host looked at so a missing directory is visibly missing.
+                skills.length === 0 && roots.length > 0
+                  ? e('div', { className: 'dsh-sc-roots' },
+                      e('div', { className: 'dsh-sc-roots-label' }, t('scannedRoots')),
+                      e('ul', null,
+                        roots.map((r) => e('li', { key: r.path, className: r.exists ? 'exists' : 'missing' },
+                          e('code', null, r.path),
+                          e('span', { className: 'dsh-sc-roots-note' },
+                            r.exists ? `${t('rootEmpty')}${r.found}` : t('rootMissing'))))))
+                  : null)
             : e('div', { className: 'dsh-sc-stage', ref: gridRef },
                 e('canvas', { ref: canvasRef, className: 'dsh-sc-fx', 'aria-hidden': 'true' }),
                 e('div', { className: `dsh-sc-grid${entranceFor}` },
