@@ -68,6 +68,7 @@ const server = createServer((req, res) => {
   const url = new URL(req.url || '/', 'http://localhost')
   let pathname = decodeURIComponent(url.pathname)
   if (pathname === '/' || pathname === '/diagnose' || pathname === '/diagnose/') pathname = '/diagnose/index.html'
+  if (pathname.startsWith('/diagnose/plugins/dsh-skill-cards/vendor/')) pathname = pathname.slice('/diagnose/plugins/dsh-skill-cards'.length)
   // Prevent traversal.
   const file = normalize(join(root, pathname))
   if (!file.startsWith(root)) {
@@ -83,6 +84,6 @@ const server = createServer((req, res) => {
   }
 })
 
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`skill-cards 诊断页 → http://127.0.0.1:${PORT}/diagnose/`)
 })

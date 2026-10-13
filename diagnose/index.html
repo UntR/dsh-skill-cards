@@ -10,7 +10,7 @@
 </style>
 </head><body>
 <h1>技能卡片诊断页（脱离 DSH，验证 client.js 自身能否渲染）</h1>
-<p>两区都应出现一张卡片「claude-md-improver」，且下方日志两行都是 <span class="ok">✅</span>、无红色 <span class="bad">❌</span>。</p>
+<p>两区都应出现技能卡牌（可用 ?count=95 验证大量卡牌，?count=0 验证空列表），且下方日志两行都是 <span class="ok">✅</span>、无红色 <span class="bad">❌</span>。</p>
 <div style="display:flex;gap:24px">
   <div style="flex:1"><b>① shell.overlay（弹窗入口）</b><div class="slot" id="overlay-slot"></div></div>
   <div style="flex:1"><b>② settings.section（设置入口）</b><div class="slot" id="settings-slot"></div></div>
@@ -76,6 +76,14 @@ try {
     if(name==='react') return window.React
     throw new Error('unexpected require('+name+')')
   })
+  var params = new URLSearchParams(location.search)
+  var count = params.has('count') ? Math.max(0, Math.min(200, Number(params.get('count')) || 0)) : 3
+  function makeSkills(base) {
+    return Array.from({ length: count }, function(_, i) {
+      var skill = base[i % base.length]
+      return Object.assign({}, skill, { name: count <= 3 ? skill.name : 'skill-' + String(i + 1).padStart(3, '0') + '-' + skill.name })
+    })
+  }
   var registerCalls = []
   var dict = null
   var slots = {
@@ -98,17 +106,28 @@ try {
     L('未找到 overlay/settings 注册（注册项：'+(registerCalls.map(function(r){return r.meta.name})).join(', ')+'）', true)
   } else {
     var store = overlay.meta.inject().store
-    window.fetch = function(url){
+    var applied = []
+    window.fetch = function(url, opts){
+      function reply(data){ return Promise.resolve({ ok:true, json:function(){ return Promise.resolve(data) } }) }
+      if(String(url).indexOf('/active-session')>=0) return reply({ sessionId:'diagnose' })
+      if(String(url).indexOf('/applied')>=0) return reply({ skills:applied })
+      if(String(url).indexOf('/introduce')>=0) {
+        applied = JSON.parse(opts.body).names
+        L('应用技能: ' + applied.join(', '))
+        return reply({ results:applied.map(function(name){ return {name:name, ok:true} }) })
+      }
+      if(String(url).indexOf('/revoke')>=0) { applied = []; return reply({ ok:true }) }
+
       if(String(url).indexOf('/skills')>=0)
         return Promise.resolve({ ok:true, json:function(){ return Promise.resolve({
-          ok:true, skills:[
+          ok:true, skills:makeSkills([
             { name:'claude-md-improver', description:'改进 CLAUDE.md', source:'user-dsh', label:'Claude MD', hasCover:false, coverUrl:null,
               custom:null, stats:{uses:1}, category:'ai', suggestedCategory:'ai' },
             { name:'i18n-demo', description:'demo desc', source:'user-dsh', label:'Demo', hasCover:false, coverUrl:null,
               custom:{ image:null, title:null, description:null, i18n:{ zh:'演示卡', zhDesc:'中文描述内容' } }, stats:{uses:7}, category:'ai', suggestedCategory:'ai' },
             { name:'theme-factory', description:'Toolkit for styling artifacts with a theme.', source:'user-dsh', label:'TF', hasCover:false, coverUrl:null,
               custom:{ image:null, title:null, description:null, i18n:{ zh:'主题工厂', zhDesc:'为幻灯片、文档、报告、网页等作品套用主题。' } }, stats:{uses:0}, category:'design', suggestedCategory:'design' }
-          ], categories:{ ai:{label:'AI'} } }) } })
+          ]), categories:{ ai:{label:'AI'}, design:{label:'设计'} } }) } })
       return Promise.resolve({ ok:false })
     }
     ReactDOM.render(React.createElement(overlay.component, {}), document.getElementById('overlay-slot'))
@@ -119,15 +138,15 @@ try {
       // flat-card skin's class, which the game-card face stopped rendering — so
       // the diagnostic reported ❌ no matter how healthy the panel was.
       var cards = (oh.match(/dsh-sc-card-wrap/g)||[]).length
-      var ok = cards > 0
-      L('弹窗渲染卡片: '+cards+(ok?' ✅':('（应为 1，实际 '+cards+'）')), !ok)
+      var ok = count === 0 ? cards === 0 : cards > 0
+      L('弹窗渲染卡片: '+cards+(ok?' ✅':('（数量异常，实际 '+cards+'）')), !ok)
     }, 900)
     ReactDOM.render(React.createElement(settings.component, { useSessions: function(){ return undefined } }), document.getElementById('settings-slot'))
     setTimeout(function(){
       var sh = document.getElementById('settings-slot').innerHTML || ''
       var cards = (sh.match(/dsh-sc-card-wrap/g)||[]).length
-      var ok = cards > 0
-      L('设置面板渲染卡片: '+cards+(ok?' ✅':('（应为 1，实际 '+cards+'）')), !ok)
+      var ok = count === 0 ? cards === 0 : cards > 0
+      L('设置面板渲染卡片: '+cards+(ok?' ✅':('（数量异常，实际 '+cards+'）')), !ok)
       L('完成。两行都是 ✅ → client.js 在真实 React 下能渲染；若你在 DSH 里仍闪退，问题在 DSH 宿主侧。')
     }, 1000)
   }

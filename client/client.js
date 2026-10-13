@@ -244,6 +244,44 @@ window.__ModuleLoader__.load({
    unsafe: the row height comes from the cards' aspect-ratio, not their content. */
 .dsh-sc-grid .dsh-sc-card-wrap { contain:layout; }
 
+/* 扇形只变换外层，卡面、详情与业务勾选仍复用原组件。 */
+.dsh-sc-panel.has-cards { height:82vh; }
+.dsh-sc-fan { position:relative; z-index:1; min-width:0; }
+.dsh-sc-fan-hand { position:relative; touch-action:pan-y; isolation:isolate; }
+.dsh-sc-fan-slot { position:absolute; left:50%; top:20px; transform-origin:50% 100%;
+  transition:transform .46s cubic-bezier(.22,.8,.25,1), opacity .3s ease; }
+.dsh-sc-fan-slot > .dsh-sc-card-wrap { height:100%; }
+.dsh-sc-fan-slot .dsh-sc-card, .dsh-sc-fan-slot .dsh-sc-card:hover { transform:none; }
+.dsh-sc-fan-slot.is-current .dsh-sc-gcard { box-shadow:0 0 0 1px var(--sc-gold), 0 12px 28px rgba(0,0,0,.5); }
+.dsh-sc-fan-slot:not(.is-ready) .dsh-sc-cardtools { visibility:hidden; pointer-events:none; }
+.dsh-sc-fan-nav { display:flex; justify-content:center; align-items:center; gap:16px; padding:4px 0 12px; }
+.dsh-sc-fan-position { color:var(--sc-gold-hi); font-size:12px; font-variant-numeric:tabular-nums; }
+.dsh-sc-fan-nav button, .dsh-sc-details-actions button { cursor:pointer; font:inherit; font-size:12px;
+  color:var(--sc-ink); background:var(--sc-shell-2); border:1px solid var(--sc-line); border-radius:7px; padding:7px 12px; }
+.dsh-sc-fan-nav button { min-width:44px; min-height:36px; }
+.dsh-sc-fan-nav button:disabled { opacity:.35; cursor:not-allowed; }
+.dsh-sc-fan-nav button:focus-visible, .dsh-sc-details-actions button:focus-visible,
+.dsh-sc-fan-hand:focus-visible { outline:2px solid var(--sc-gold); outline-offset:2px; }
+.dsh-sc-fan-hint { text-align:center; color:var(--sc-ink-3); font-size:11px; margin:0 0 12px; }
+.dsh-sc-details { max-width:640px; margin:0 auto; padding:14px 16px;
+  border:1px solid var(--sc-line-soft); border-radius:10px; background:var(--sc-shell); }
+.dsh-sc-details h3 { margin:0 0 6px; font-size:16px; color:var(--sc-gold-hi); overflow-wrap:anywhere; }
+.dsh-sc-details-desc { margin:0; font-size:12px; line-height:1.65; white-space:pre-wrap; overflow-wrap:anywhere;
+  color:var(--sc-ink-2); user-select:text; }
+.dsh-sc-details-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.dsh-sc-details-actions button[aria-pressed=true] { border-color:var(--sc-gold); color:var(--sc-gold-hi); }
+.dsh-sc-toolbar { flex-wrap:wrap; }
+.dsh-sc-stage { overflow-x:hidden; }
+@media (max-width:480px) {
+  .dsh-sc-backdrop { padding:8px; }
+  .dsh-sc-stage { padding:10px; }
+  .dsh-sc-toolbar { gap:6px; padding:8px 10px; }
+  .dsh-sc-toolbar button { padding:5px 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dsh-sc-fan-slot { transition:none; }
+}
+
 /* ── card ────────────────────────────────────────────────────────────────── */
 /* height:100% makes every card in a row match the tallest one, while the row
    itself stays content-sized. */
@@ -645,7 +683,7 @@ window.__ModuleLoader__.load({
 
 @media (prefers-reduced-motion: reduce) {
   .dsh-sc-gcard:hover .gc-foil { opacity:.22; }
-  .dsh-sc-gcard:hover .gc-foil::before { animation:none; left:30%; }
+  .dsh-sc-gcard:hover .gc-foil::before, .dsh-sc-gcard.sr .gc-foil::before { animation:none; left:30%; }
   .dsh-sc-gacha-slot.enter { animation:none; }
   .dsh-sc-gacha-flip { transition:none; }
   .dsh-sc-gacha-slot.flash::after { animation:none; opacity:0; }
@@ -846,6 +884,9 @@ window.__ModuleLoader__.load({
         noMatch: '没有匹配的技能。',
         noMatchHint: '换个关键词，或清空搜索框看全部。',
         selectAll: '全选', clear: '清空', selected: '已选', noneSelected: '未选择',
+        previousCard: '上一张', nextCard: '下一张', browseCards: '浏览技能卡牌',
+        fanHint: '点击侧牌居中 · 点击中央卡勾选 · 支持方向键与左右滑动',
+        selectCard: '勾选技能', deselectCard: '取消勾选', favoriteCard: '设为常用', unfavoriteCard: '取消常用',
         apply: '应用到本次会话', applying: '正在应用…',
         setImage: '自定义', imgTitle: '标题', imgDesc: '描述', imageUrl: '图片 URL（可选）',
         imageHint: '本地选图或粘贴 http(s) 图片链接。留空则用自动配色。',
@@ -878,6 +919,9 @@ window.__ModuleLoader__.load({
         noMatch: 'No skills match that search.',
         noMatchHint: 'Try another keyword, or clear the box to see everything.',
         selectAll: 'Select all', clear: 'Clear', selected: 'Selected', noneSelected: 'None selected',
+        previousCard: 'Previous card', nextCard: 'Next card', browseCards: 'Browse skill cards',
+        fanHint: 'Center a side card · Click the center to select · Arrow keys or swipe to browse',
+        selectCard: 'Select skill', deselectCard: 'Deselect skill', favoriteCard: 'Favorite', unfavoriteCard: 'Unfavorite',
         apply: 'Apply to this session', applying: 'Applying…',
         setImage: 'Customize', imgTitle: 'Title', imgDesc: 'Description', imageUrl: 'Image URL (optional)',
         imageHint: 'Pick a local file or paste an http(s) image link. Leave empty for the generated colours.',
@@ -1950,7 +1994,7 @@ ${draft}`
        them changed. Memo only pays off because every prop below is referentially
        stable — the handlers are useCallback'd and `skill` is a memoised object,
        so an unchanged card really does bail out. */
-    const Card = React.memo(function Card({ skill, custom, selected, onToggle, onSetImage, onTranslate, onResetI18n, onArtPrompt, t, catDefs, onStar, onCategory }) {
+    const Card = React.memo(function Card({ skill, custom, selected, interactive = true, onToggle, onSetImage, onTranslate, onResetI18n, onArtPrompt, t, catDefs, onStar, onCategory }) {
       const effectiveTitle = custom?.i18n?.zh || custom?.title || skill.name
       const effectiveDesc = custom?.i18n?.zhDesc || custom?.description || skill.description || ''
       const [imgError, setImgError] = useState(false)
@@ -1964,6 +2008,8 @@ ${draft}`
       const infoAnchorRef = useRef(null) // the "原" button that opens it
       const catOpen = !!pop && pop.kind === 'cat'
       const infoOpen = !!pop && pop.kind === 'info'
+      // 切换或缩放期间关闭弹层，避免拿过渡中的矩阵测量菜单坐标。
+      useEffect(() => { if (!interactive) setPop(null) }, [interactive])
       /**
        * Toggle a card popover. `anchor` is the ref of the control it hangs off;
        * that control is exempt from the outside-click close below, so it can
@@ -2068,14 +2114,14 @@ ${draft}`
                   uses,
                   lv,
                   sr,
-                  catChip: gcCatChip({
+                  catChip: interactive ? gcCatChip({
                     catLabel,
                     catOpen,
                     anchorRef: catAnchorRef,
                     // 200px fits every category label; 300px is roughly eight rows
                     // before the panel starts scrolling.
                     onToggle: () => togglePop('cat', catAnchorRef, 200, 300),
-                  }),
+                  }) : null,
                 }))),
           ),
           e('div', { className: 'dsh-sc-check', 'aria-hidden': 'true' }, selected ? '✓' : ''),
@@ -2172,6 +2218,137 @@ ${draft}`
       )
     })
 
+    // 宽度来自实际面板，设置栏与弹窗共用同一套计算。留一张透明缓冲卡，
+    // 连续切换时相邻卡保留 DOM 节点，CSS 可以从旧位置平滑过渡。
+    function fanMetrics(width, viewportHeight, availableHeight = Infinity) {
+      const radius = width >= 800 ? 3 : width >= 540 ? 2 : 1
+      // 为导航与详情留出空间；短窗口保留最小可辨卡面，再由 stage 纵向滚动。
+      const heightBudget = Math.max(200, Math.min(viewportHeight * .44, availableHeight - 288 - radius * radius * 6))
+      const cardWidth = Math.min(260, width * .56, heightBudget * 59 / 86)
+      const cardHeight = cardWidth * 86 / 59
+      const angle = radius * 5 * Math.PI / 180
+      const outerWidth = (cardWidth / 2 * Math.cos(angle) + cardHeight * Math.sin(angle)) * (1 - radius * .09)
+      const step = Math.max(0, Math.min(cardWidth * .48, (width / 2 - 14 - outerWidth) / radius))
+      const bottom = cardWidth / 2 * Math.sin(angle) * (1 - radius * .09)
+      return { radius, cardWidth, cardHeight, step, height: Math.ceil(cardHeight + 32 + bottom + radius * radius * 6) }
+    }
+
+    function fanPose(offset, metrics) {
+      const distance = Math.abs(offset)
+      return {
+        transform: `translate3d(${offset * metrics.step}px, ${distance * distance * 6}px, 0) rotate(${offset * 5}deg) scale(${1 - distance * .09})`,
+        zIndex: 20 - distance,
+        opacity: distance <= metrics.radius ? 1 : 0,
+      }
+    }
+
+    function CardFan({ skills, selected, t, ...cardProps }) {
+      const [activeName, setActiveName] = useState(null)
+      const [size, setSize] = useState({ width: 0, height: 0, availableHeight: 0 })
+      const [moving, setMoving] = useState(false)
+      const handRef = useRef(null)
+      const gesture = useRef(null)
+      const suppressClick = useRef(false)
+      // 用名字保存浏览对象；收藏导致排序改变时，仍以同一张卡为中心。
+      const activeIndex = Math.max(0, skills.findIndex((s) => s.name === activeName))
+      const current = skills[activeIndex]
+      useEffect(() => { setActiveName(current?.name || null) }, [current?.name])
+      useEffect(() => {
+        const el = handRef.current
+        if (!el) return
+        const stage = el.closest?.('.dsh-sc-stage')
+        const measure = () => setSize({ width: el.clientWidth, height: window.innerHeight, availableHeight: stage?.clientHeight || window.innerHeight })
+        measure()
+        const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+        observer?.observe(el)
+        if (stage) observer?.observe(stage)
+        window.addEventListener('resize', measure)
+        return () => { observer?.disconnect(); window.removeEventListener('resize', measure) }
+      }, [])
+      // 仅最终中央卡可开工具弹层；尺寸变化也需等卡牌稳定后再测量。
+      useEffect(() => {
+        setMoving(true)
+        const timer = setTimeout(() => setMoving(false), 480)
+        return () => clearTimeout(timer)
+      }, [activeIndex, current?.name, size.width, size.height, size.availableHeight])
+      const metrics = fanMetrics(size.width, size.height, size.availableHeight)
+      const move = (delta) => {
+        const next = Math.max(0, Math.min(skills.length - 1, activeIndex + delta))
+        if (next !== activeIndex) setActiveName(skills[next].name)
+      }
+      const browse = useCallback((name) => {
+        if (name === current?.name) cardProps.onToggle(name)
+        else setActiveName(name)
+      }, [current?.name, cardProps.onToggle])
+      if (!current) return null
+      const custom = current.custom
+      const title = custom?.i18n?.zh || custom?.title || current.name
+      const desc = custom?.i18n?.zhDesc || custom?.description || current.description || t('origNoDesc')
+      return e('div', { className: 'dsh-sc-fan' },
+        e('div', {
+          className: 'dsh-sc-fan-hand', ref: handRef,
+          role: 'region', 'aria-label': t('browseCards'), tabIndex: 0,
+          style: { height: metrics.height },
+          onKeyDown: (ev) => {
+            suppressClick.current = false
+            if (ev.target !== ev.currentTarget && !ev.target.classList.contains('dsh-sc-cardhit')) return
+            if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return
+            ev.preventDefault()
+            // 卡牌移出虚拟窗口后仍保留键盘焦点，避免掉回宿主页面。
+            ev.currentTarget.focus({ preventScroll: true })
+            move(ev.key === 'ArrowLeft' ? -1 : 1)
+          },
+          onPointerDown: (ev) => {
+            suppressClick.current = false
+            if (ev.pointerType === 'mouse' || !ev.isPrimary || ev.target.closest('.dsh-sc-cardtools, .dsh-sc-cat, .dsh-sc-catpop, .dsh-sc-srcpop')) return
+            gesture.current = { id: ev.pointerId, x: ev.clientX, y: ev.clientY }
+          },
+          onPointerUp: (ev) => {
+            const start = gesture.current
+            gesture.current = null
+            if (!start || ev.pointerId !== start.id) return
+            const dx = ev.clientX - start.x
+            const dy = ev.clientY - start.y
+            if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.4) return
+            suppressClick.current = true
+            move(dx < 0 ? 1 : -1)
+          },
+          onPointerCancel: () => { gesture.current = null },
+          onClickCapture: (ev) => {
+            if (!suppressClick.current) return
+            suppressClick.current = false
+            ev.preventDefault(); ev.stopPropagation()
+          },
+        }, size.width > 0 ? skills.slice(Math.max(0, activeIndex - metrics.radius - 1), activeIndex + metrics.radius + 2).map((skill) => {
+          const offset = skills.indexOf(skill) - activeIndex
+          const visible = Math.abs(offset) <= metrics.radius
+          const active = offset === 0
+          return e('div', {
+            key: skill.name,
+            className: `dsh-sc-fan-slot${active ? ' is-current' : ''}${active && !moving ? ' is-ready' : ''}`,
+            'aria-current': active ? 'true' : undefined,
+            'aria-hidden': visible ? undefined : 'true', inert: visible ? undefined : '',
+            style: { width: metrics.cardWidth, height: metrics.cardHeight, marginLeft: -metrics.cardWidth / 2,
+              ...fanPose(offset, metrics), pointerEvents: visible ? 'auto' : 'none' },
+          }, e(Card, { ...cardProps, skill, custom: skill.custom, selected: selected.has(skill.name), t,
+            interactive: active && !moving, onToggle: browse }))
+        }) : null),
+        e('div', { className: 'dsh-sc-fan-nav' },
+          e('button', { type: 'button', onClick: () => move(-1), disabled: activeIndex === 0, 'aria-label': t('previousCard') }, '←'),
+          e('span', { className: 'dsh-sc-fan-position', role: 'status', 'aria-live': 'polite' }, `${activeIndex + 1} / ${skills.length}`),
+          e('button', { type: 'button', onClick: () => move(1), disabled: activeIndex === skills.length - 1, 'aria-label': t('nextCard') }, '→')),
+        e('p', { className: 'dsh-sc-fan-hint' }, t('fanHint')),
+        e('section', { className: 'dsh-sc-details', 'aria-label': title },
+          e('h3', null, title),
+          e('p', { className: 'dsh-sc-details-desc' }, desc),
+          e('div', { className: 'dsh-sc-details-actions' },
+            e('button', { type: 'button', 'aria-pressed': selected.has(current.name),
+              onClick: () => cardProps.onToggle(current.name) }, selected.has(current.name) ? t('deselectCard') : t('selectCard')),
+            e('button', { type: 'button', 'aria-pressed': !!current.starred,
+              onClick: () => cardProps.onStar(current.name) }, current.starred ? t('unfavoriteCard') : t('favoriteCard')),
+            e('button', { type: 'button', onClick: () => cardProps.onSetImage(current) }, t('setImage')))))
+    }
+
     /* ------------------------------------------------------------------ *
      * Category filter row (chips + sort toggle)
      * ------------------------------------------------------------------ */
@@ -2257,7 +2434,8 @@ ${draft}`
       if (!grid || !names || names.length === 0) return []
       const cards = []
       for (const n of names.slice(0, 6)) {
-        const el = grid.querySelector(`.dsh-sc-card[data-name="${n}"]`)
+        // 多选可以跨出浏览窗口；缺席的卡仍从中央位置揭示，保留应用反馈。
+        const el = grid.querySelector(`.dsh-sc-card[data-name="${n}"]`) || grid.querySelector('.dsh-sc-fan-slot.is-current .dsh-sc-card')
         if (!el) continue
         const r = el.getBoundingClientRect()
         cards.push({ name: n, x: r.left, y: r.top, w: r.width, h: r.height })
@@ -2675,7 +2853,6 @@ ${draft}`
       const gridRef = useRef(null)
       const canvasRef = useRef(null)
       const fxRef = useRef(null)
-
       const showToast = useCallback((msg) => {
         setToast(msg)
         if (toastTimer.current) clearTimeout(toastTimer.current)
@@ -2802,51 +2979,11 @@ ${draft}`
         return counts
       }, [merged])
 
-      /* The entrance wave is driven by a CSS class on the GRID element, which
-         must already be present in the very first paint — adding it from an
-         effect (which runs after paint) would let the cards render fully opaque
-         for one frame and then jump, which reads as a flicker. So the class is
-         rendered onto the element, and initCard3D only owns the hover tilt.
-         Under prefers-reduced-motion the class is never rendered at all. */
-      const prefersReduced = typeof window !== 'undefined' && window.matchMedia
-        ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        : false
-      const [entrance, setEntrance] = useState(() => !prefersReduced)
-      const entranceFor = entrance ? ' enter' : ''
-      // Retire the wave class once the longest card's animation is done (620ms
-      // + the 400ms stagger cap + slack). Leaving it on would keep one
-      // compositor animation alive per card for the panel's whole life, and an
-      // animation that still owns `transform` would fight the hover tilt.
-      useEffect(() => {
-        if (!entrance) return
-        const id = setTimeout(() => setEntrance(false), 620 + 400 + 80)
-        return () => clearTimeout(id)
-      }, [entrance])
-
-      // 3D card poses are pure CSS (per-card perspective/rotate/translate):
-      // they do NOT depend on three.js, so they apply to every render — search
-      // typing, image edits, remounts — with the staggered entrance only on the
-      // first mount. Reduced-motion users and very old engines get the flat
-      // grid because initCard3D itself honours prefers-reduced-motion.
-      useEffect(() => {
-        const grid = gridRef.current
-        if (!grid || skills === null || skills.length === 0 || editing) return
-        // A real-DOM quirk must never take the whole panel down (a throw here
-        // propagates to the slot's error boundary and blanks this section/the
-        // modal — the "opens then instantly disappears" bug). Degrade to flat.
-        try {
-          const cleanup = initCard3D(grid)
-          return () => { try { cleanup && cleanup() } catch { /* ignore */ } }
-        } catch (err) {
-          console.error('[skill-cards] initCard3D failed:', err)
-          return () => {}
-        }
-      }, [skills, editing, filtered])
-
+      // 扇形姿态只由当前浏览索引计算，避免随机 3D 倾斜与切换动画争用 transform。
       // The WebGL particle nebula is the only part that needs three.js. It is
       // purely decorative: created once per structural change (not per search
       // keystroke), disposed on unmount, and its failure (script blocked, no
-      // WebGL, init crash) only hides the background — cards stay 3D and usable.
+      // WebGL, init crash) only hides the background — cards stay usable in the fan.
       // `gridVisible` (not `filtered` identity) keeps it from being recreated on
       // every keystroke while still reattaching after the grid reappears.
       const gridVisible = filtered.length > 0
@@ -2865,7 +3002,7 @@ ${draft}`
             }
             if (scene) setFx(true)
           }).catch(() => {
-            // three.js unavailable → flat background; the DOM grid already works.
+            // three.js unavailable → flat background; the DOM fan already works.
           })
         } catch (err) {
           // never let a real-DOM quirk blank the panel on open
@@ -3024,7 +3161,7 @@ ${draft}`
         } catch (err) { setError(`${t('toastFail')}${err.message}`) } finally { setBusy(false) }
       }, [selected, store, t, showToast, onApplyDone, merged])
 
-      return e('div', { className: `dsh-sc-panel${fx ? ' fx' : ''}` },
+      return e('div', { className: `dsh-sc-panel${fx ? ' fx' : ''}${filtered.length ? ' has-cards' : ''}` },
         e('div', { className: 'dsh-sc-search-row' },
           skills ? e('span', { className: 'dsh-sc-title-count' }, `${filtered.length}/${skills.length}`) : null,
           e('input', {
@@ -3063,9 +3200,8 @@ ${draft}`
                   : null)
             : e('div', { className: 'dsh-sc-stage', ref: gridRef },
                 e('canvas', { ref: canvasRef, className: 'dsh-sc-fx', 'aria-hidden': 'true' }),
-                e('div', { className: `dsh-sc-grid${entranceFor}` },
-                  filtered.map((s) => e(Card, {
-                    key: s.name, skill: s, custom: s.custom, selected: selected.has(s.name), t,
+                e(CardFan, {
+                    skills: filtered, selected, t,
                     catDefs,
                     onToggle: toggle, onSetImage: openImageForm,
                     onTranslate: openTranslate,
@@ -3073,7 +3209,7 @@ ${draft}`
                     onResetI18n: runResetI18n,
                     onStar: toggleStar,
                     onCategory: setCardCategory,
-                  })))),
+                  })),
         catMgrOpen ? e(CategoryManager, {
           catDefs, t,
           onAdd: async (label) => {
