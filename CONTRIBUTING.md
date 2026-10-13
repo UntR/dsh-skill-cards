@@ -73,6 +73,25 @@ grep -c "max-height:82vh" ~/.dsh/profiles/desktop/node_modules/dsh-skill-cards/c
 
 **判断口诀：** 现象与预期不符时，先怀疑「跑的不是你以为的那份代码」，而不是「我的修复逻辑有问题」。
 
+### 客户端改动是自动热重载的（不用重启，通常也不用刷新）
+
+`client/` 是宿主**按需读取**的浏览器半边。`@deepseek-ai/dsh-client-hmr` 每 **500ms** 轮询每个已注册插件的客户端文件（比对 mtime / ctime / size）：文件一变，宿主立刻重新读盘、生成新的 `rev`，并通过 `GET /plugins/events`（SSE）向页面推一帧 `rebuilt`；浏览器半边收到后调用 `entries.reload(id, rev)` **就地重载该插件** —— 页面本身不用刷新。
+
+所以在 `link:` 安装下，改完 `client/client.js` 保存即生效（约半秒内）。想确认宿主真的拿到了新代码，不用靠猜：
+
+```bash
+# 1) 订阅事件流，再 touch 一下触发重新发布
+curl -sN http://127.0.0.1:19387/plugins/events &
+touch client/client.js
+# 看到 {"type":"rebuilt","id":"dsh-skill-cards","rev":"xxxx"} 就是已经重载了；
+# 初始的 graph 帧里也能看到该插件当前的 rev
+
+# 2) 把宿主"正在发"的那一份抓下来核对（rev 用上一步的）
+curl -s "http://127.0.0.1:19387/plugins/??dsh-skill-cards/client.js&rev=xxxx" | grep -c 你新加的标记
+```
+
+宿主对每个 `rev` 做**不可变缓存**（旧 rev 绝不会被换成新字节），所以「rev 变了 + 页面已拿到新 rev」就等于「跑的是新代码」。改 `lib/`（宿主半边）不在此列 —— 那部分要重启 DSH。
+
 ---
 
 ## 提交前必跑

@@ -79,14 +79,25 @@ test('the bound t is actually used as a function in the card path', () => {
 
 test('the CSS template literal contains no stray backticks', () => {
   // The stylesheet is a template literal; a backtick inside it (e.g. when
-  // quoting a property name) terminates the literal early and silently drops
-  // or corrupts every rule after it.
+  // quoting a CSS class name in a comment) terminates the literal early and
+  // silently drops or corrupts every rule after it — and the following words
+  // then parse as code, so the bundle dies with "… is not defined".
+  //
+  // Checking only up to the FIRST backtick after the opening one proves nothing:
+  // that first backtick IS the stray one, so everything before it is clean by
+  // construction. Anchor on the statement that follows the literal instead, and
+  // require the only backtick in that span to be the terminator.
   const start = clientSrc.indexOf('const CSS = `')
   assert.ok(start !== -1, 'CSS template literal not found')
-  const end = clientSrc.indexOf('`', start + 'const CSS = `'.length)
-  assert.ok(end !== -1, 'CSS template literal is unterminated')
-  const body = clientSrc.slice(start + 'const CSS = `'.length, end)
+  const after = clientSrc.indexOf('function ensureStyle')
+  assert.ok(after > start, 'ensureStyle must follow the CSS literal')
+  const span = clientSrc.slice(start + 'const CSS = `'.length, after)
+  const terminator = span.lastIndexOf('`')
+  assert.ok(terminator !== -1, 'the CSS literal is never terminated before ensureStyle')
+  const body = span.slice(0, terminator)
   assert.ok(!body.includes('`'), 'a stray backtick would truncate the stylesheet')
+  assert.equal(span.slice(terminator + 1).trim(), '',
+    'only the literal terminator may sit between the CSS and ensureStyle')
   // The layout rules that keep the card grid usable must survive in the literal.
   // `height:100%` on the card is what equalises card heights per row; the grid
   // uses `grid-auto-rows:1fr` with fixed 4-across columns since the game-card skin.

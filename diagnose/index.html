@@ -84,7 +84,10 @@ try {
   }
   var locale = {
     register: function(ns, d){ dict = d },
-    bind: function(ns){ return function(key, params){ var v = dict && dict[key]; return (typeof v==='function') ? v(params) : v } }
+    // Mirror the host: register(ns, { zh, en }) then bind(ns) -> t(key). Reading
+    // dict[key] straight out of the nested object yields undefined for every
+    // label, which used to render a diagnostic panel with blank text everywhere.
+    bind: function(ns){ return function(key, params){ var v = (dict.zh || dict)[key]; return (typeof v==='function') ? v(params) : v } }
   }
   mod.apply({ slots: slots, locale: locale, effect: function(fn){ fn() } })
   L('apply() 成功')
@@ -112,14 +115,17 @@ try {
     store.open()
     setTimeout(function(){
       var oh = document.getElementById('overlay-slot').innerHTML || ''
-      var cards = (oh.match(/dsh-sc-name/g)||[]).length
+      // Count the current card wrapper. This used to match `.dsh-sc-name`, the
+      // flat-card skin's class, which the game-card face stopped rendering — so
+      // the diagnostic reported ❌ no matter how healthy the panel was.
+      var cards = (oh.match(/dsh-sc-card-wrap/g)||[]).length
       var ok = cards > 0
       L('弹窗渲染卡片: '+cards+(ok?' ✅':('（应为 1，实际 '+cards+'）')), !ok)
     }, 900)
     ReactDOM.render(React.createElement(settings.component, { useSessions: function(){ return undefined } }), document.getElementById('settings-slot'))
     setTimeout(function(){
       var sh = document.getElementById('settings-slot').innerHTML || ''
-      var cards = (sh.match(/dsh-sc-name/g)||[]).length
+      var cards = (sh.match(/dsh-sc-card-wrap/g)||[]).length
       var ok = cards > 0
       L('设置面板渲染卡片: '+cards+(ok?' ✅':('（应为 1，实际 '+cards+'）')), !ok)
       L('完成。两行都是 ✅ → client.js 在真实 React 下能渲染；若你在 DSH 里仍闪退，问题在 DSH 宿主侧。')

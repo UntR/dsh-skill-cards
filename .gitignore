@@ -12,3 +12,7 @@ diagnose/react-dom.js
 # exported from ~/.dsh/ as a backup. Never public: it is user-specific and
 # not part of the published npm package (see `files` in package.json).
 local-config-backup/
+
+# Local verification screenshots (headless-Chrome captures used while checking
+# card layout / popover geometry). Not part of the published package.
+.shots/

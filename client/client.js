@@ -175,7 +175,7 @@ window.__ModuleLoader__.load({
 
 /* Keyboard focus, on every interactive surface, without relying on mouse state. */
 .dsh-sc-composer-btn:focus-visible, .dsh-sc-close:focus-visible,
-.dsh-sc-toolbar button:focus-visible, .dsh-sc-apply:focus-visible, .dsh-sc-card:focus-visible,
+.dsh-sc-toolbar button:focus-visible, .dsh-sc-apply:focus-visible, .dsh-sc-cardhit:focus-visible,
 .dsh-sc-catchip:focus-visible, .dsh-sc-imgform button:focus-visible,
 .dsh-sc-catpop button:focus-visible, .dsh-sc-file-btn:focus-visible {
   outline:2px solid var(--sc-gold, #c9a24b); outline-offset:2px; }
@@ -285,10 +285,8 @@ window.__ModuleLoader__.load({
 .dsh-sc-card.selected .dsh-sc-check { background:linear-gradient(180deg,var(--sc-gold-hi,#f0d48a),var(--sc-gold,#c9a24b));
   border-color:var(--sc-gold,#c9a24b); color:#241b0a; }
 
-.dsh-sc-setimg { position:absolute; left:8px; bottom:8px; padding:3px 8px; border-radius:6px;
-  background:rgba(17,20,26,.62); color:#fff; font-size:10px; cursor:pointer;
-  border:1px solid rgba(255,255,255,.28); opacity:0; transition:opacity .12s ease; }
-.dsh-sc-card:hover .dsh-sc-setimg, .dsh-sc-setimg:focus-visible { opacity:1; }
+/* Card hover controls are laid out as one cluster — see .dsh-sc-cardtools in
+   the game-card section below, which owns their shape, colour and reveal. */
 
 /* ── states ──────────────────────────────────────────────────────────────── */
 .dsh-sc-empty { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; gap:6px;
@@ -412,13 +410,8 @@ window.__ModuleLoader__.load({
 .dsh-sc-card-wrap .dsh-sc-card { flex:1 1 auto; min-height:0; }
 .dsh-sc-card-wrap .dsh-sc-card:hover { position:relative; z-index:2; }
 
-/* ── star on the tile ─────────────────────────────────────────────────────── */
-.dsh-sc-star { position:absolute; top:6px; left:6px; width:22px; height:22px; border-radius:50%;
-  background:rgba(17,20,26,.58); color:#fff; border:1px solid rgba(255,255,255,.25);
-  display:flex; align-items:center; justify-content:center; font-size:13px; line-height:1; cursor:pointer;
-  opacity:0; transition:opacity .12s ease; }
-.dsh-sc-card:hover .dsh-sc-star, .dsh-sc-star:focus-visible, .dsh-sc-star[aria-pressed="true"] { opacity:1; }
-.dsh-sc-star[aria-pressed="true"] { color:#FFD166; border-color:#FFD166; }
+/* The star is one of the card's hover tools, styled with the rest of the
+   cluster in the game-card section (.dsh-sc-cardtools). */
 
 
 /* ── game-card (Yu-Gi-Oh style) skin ──────────────────────────────────────
@@ -516,24 +509,65 @@ window.__ModuleLoader__.load({
 .dsh-sc-gcard.sr:hover { box-shadow:0 0 0 1px rgba(0,0,0,.55), 0 6px 18px rgba(0,0,0,.4),
   0 0 22px rgba(201,162,75,.45), inset 0 1px 2px rgba(255,255,255,.3), inset 0 -2px 4px rgba(0,0,0,.35); }
 
-/* selection / star / translate overlays on the game-card face */
-.dsh-sc-gcard .dsh-sc-check { z-index:6; }
-.dsh-sc-gcard .dsh-sc-setimg { bottom:6px; z-index:6; }
-.dsh-sc-gcard .dsh-sc-star { top:6px; left:6px; z-index:6; }
-.dsh-sc-gcard .dsh-sc-trans { position:absolute; top:6px; left:32px; z-index:6;
-  width:22px; height:22px; border-radius:50%; background:rgba(17,20,26,.58); color:#7fd4ff;
-  border:1px solid rgba(255,255,255,.25); display:flex; align-items:center; justify-content:center;
-  font-size:11px; line-height:1; cursor:pointer; opacity:0; transition:opacity .12s ease; }
-.dsh-sc-gcard .dsh-sc-trans:focus-visible { opacity:1; outline:1px solid var(--dsw-alias-border-l2); }
-.dsh-sc-gcard.i18n-done .dsh-sc-trans { color:#7fe0a8; }
-.dsh-sc-gcard .dsh-sc-trans-reset { left:58px; color:#f0a8a8; }
-.dsh-sc-gcard .dsh-sc-artbtn { position:absolute; top:6px; left:84px; z-index:6;
-  width:22px; height:22px; border-radius:50%; background:rgba(17,20,26,.58); color:#ffd88a;
-  border:1px solid rgba(255,255,255,.25); display:flex; align-items:center; justify-content:center;
-  font-size:11px; line-height:1; cursor:pointer; opacity:0; transition:opacity .12s ease; }
-.dsh-sc-gcard .dsh-sc-artbtn:focus-visible { opacity:1; outline:1px solid var(--dsw-alias-border-l2); }
-.dsh-sc-card:hover .dsh-sc-artbtn { opacity:1; }
-.dsh-sc-card:hover .dsh-sc-trans { opacity:1; }
+/* The selection tick keeps its own corner and stays above the tool cluster:
+   the cluster is later in the DOM, and a selected card must never have its
+   state mark covered by a hover control. */
+/* The selection target: a real <button> wrapping the card FACE only, so the
+   tick and the tool cluster can be SIBLINGS of it rather than nested inside it
+   (a button inside a button is invalid HTML, and the same nesting under
+   role="button" would have made the tools presentational for assistive tech).
+   It fills the card so a click anywhere on the face selects the card, and it
+   keeps the face hovered — which is what still drives .dsh-sc-gcard:hover
+   (foil sweep, SR glow). */
+.dsh-sc-cardhit { flex:1 1 auto; min-height:0; width:100%; display:flex; flex-direction:column;
+  padding:0; border:0; background:transparent; color:inherit; font:inherit;
+  text-align:left; cursor:pointer; overflow:visible; }
+
+.dsh-sc-card .dsh-sc-check { z-index:7; }
+
+/* ── card tool cluster (a card's hover controls, top-left) ────────────────
+   Every hover control on a card lives in ONE flex row in the top-left corner
+   and wraps when the column is narrow. Per-button absolute offsets could not
+   survive the grid's width range: a card measured 237px in a wide modal and
+   192px on a narrow window, and at the narrow end the sixth hand-placed button
+   either ran past the card's own overflow:hidden or landed on top of an
+   existing one — hit-testing caught both. A wrapping row keeps the same order
+   at every width and never hides a control.
+   Order groups like with like, most-used first:
+     ★ 常用 (state) → 译 / ↺ 中文化 (its text) → 原 原文 → 🎨 卡图 → 自定义 封面
+   The cluster stops short of the selection tick in the opposite corner, and it
+   keeps pointer-events OFF itself: the row spans the title bar, so clicking
+   anywhere else on the card must still select the card.
+   One opacity rule on the container replaces the six per-button reveal rules. */
+.dsh-sc-card .dsh-sc-cardtools { position:absolute; top:6px; left:6px; right:34px; z-index:6;
+  display:flex; flex-wrap:wrap; align-items:center; gap:4px;
+  opacity:0; transition:opacity .12s ease; pointer-events:none; }
+.dsh-sc-card:hover .dsh-sc-cardtools,
+.dsh-sc-cardtools:focus-within { opacity:1; }
+.dsh-sc-cardtools > * { flex:none; pointer-events:auto; }
+/* Shared shape: a 22px dark coin, tinted per tool. */
+.dsh-sc-cardtools > button { width:22px; height:22px; padding:0; border-radius:50%; cursor:pointer;
+  background:rgba(17,20,26,.58); color:#fff; border:1px solid rgba(255,255,255,.25);
+  display:flex; align-items:center; justify-content:center; font-family:inherit;
+  font-size:11px; line-height:1; transition:background .12s ease, border-color .12s ease; }
+.dsh-sc-cardtools > button:hover { background:rgba(17,20,26,.88); border-color:rgba(255,255,255,.55); }
+.dsh-sc-cardtools > button:focus-visible { outline:1px solid var(--dsw-alias-border-l2); outline-offset:1px; }
+.dsh-sc-cardtools .dsh-sc-star { font-size:13px; }
+.dsh-sc-cardtools .dsh-sc-star[aria-pressed="true"] { color:#FFD166; border-color:#FFD166; }
+.dsh-sc-cardtools .dsh-sc-trans { color:#7fd4ff; }
+.dsh-sc-cardtools .dsh-sc-trans-reset { color:#f0a8a8; }
+.dsh-sc-card.i18n-done .dsh-sc-trans { color:#7fe0a8; }
+.dsh-sc-cardtools .dsh-sc-srcbtn { color:#d9c8ff; }
+.dsh-sc-cardtools .dsh-sc-srcbtn[aria-expanded="true"] { background:rgba(17,20,26,.88); border-color:#d9c8ff; }
+.dsh-sc-cardtools .dsh-sc-artbtn { color:#ffd88a; }
+/* "自定义" is the one LABELLED control — a pill rather than a glyph, so it reads
+   as the entry to the card editor instead of another icon. */
+.dsh-sc-cardtools .dsh-sc-setimg { width:auto; display:inline-flex; align-items:center; height:22px; padding:0 9px;
+  border-radius:11px; white-space:nowrap; cursor:pointer; color:#fff;
+  background:rgba(17,20,26,.58); border:1px solid rgba(255,255,255,.25);
+  font-size:10px; line-height:1; transition:background .12s ease, border-color .12s ease; }
+.dsh-sc-cardtools .dsh-sc-setimg:hover { background:rgba(17,20,26,.88); border-color:rgba(255,255,255,.55); }
+.dsh-sc-cardtools .dsh-sc-setimg:focus-visible { outline:1px solid var(--dsw-alias-border-l2); outline-offset:1px; }
 
 /* ── gacha reveal (card-back fly-in → staggered flip → SR flash) ────────── */
 .dsh-sc-gacha { position:fixed; inset:0; z-index:9250; pointer-events:auto;
@@ -689,17 +723,56 @@ window.__ModuleLoader__.load({
   background:rgba(0,0,0,.34); color:var(--sc-ink); border:1px solid var(--sc-line-soft); }
 .dsh-sc-catman-rename input:focus { outline:none; border-color:var(--sc-gold); }
 
-/* ── category popover ────────────────────────────────────────────────────── */
-.dsh-sc-catpop { position:absolute; z-index:50; top:100%; left:8px; margin-top:4px; min-width:150px;
+/* ── anchored popovers (category picker / original text) ──────────────────
+   Both are absolutely positioned inside .dsh-sc-card-wrap, which caused two
+   usability bugs on a full wall:
+   1. COVERED — .dsh-sc-card-wrap carries contain:layout, so every card is
+      its own paint layer. A menu opened from a card therefore sat UNDER the
+      cards that follow it in source order: the next row painted straight over
+      it. Opening a popover now raises that one wrapper above its siblings,
+      which lifts the whole card — popover included.
+   2. UNREACHABLE — the stage (.dsh-sc-stage) is the scroll container, so it
+      clips its overflow: a menu listing every category ran past the stage's
+      bottom edge on the lower rows and the tail of the list could never be
+      clicked. The panel now caps its own height and scrolls internally, and
+      client.js gives it an inline top/left positioned inside the stage (see
+      popoverPlacement). The top:100% / left:0 below are only the fallback used
+      when no stage can be measured, and .up then carries nothing but the
+      direction the open animation comes from. */
+.dsh-sc-card-wrap.pop-open { z-index:70; }
+.dsh-sc-catpop, .dsh-sc-srcpop { position:absolute; z-index:70; top:100%; left:0;
+  overflow-y:auto; overscroll-behavior:contain;
   background:linear-gradient(180deg, var(--sc-shell-3), var(--sc-shell)); border:1px solid var(--sc-line);
-  border-radius:10px; padding:6px;
-  box-shadow:0 0 0 1px rgba(0,0,0,.6), 0 12px 34px rgba(0,0,0,.55); display:flex; flex-direction:column; gap:2px; }
+  border-radius:10px;
+  box-shadow:0 0 0 1px rgba(0,0,0,.6), 0 12px 34px rgba(0,0,0,.55);
+  animation:dshScPopDown .14s ease; }
+.dsh-sc-catpop.up, .dsh-sc-srcpop.up { animation:dshScPopUp .14s ease; }
+@keyframes dshScPopDown { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
+@keyframes dshScPopUp { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+
+.dsh-sc-catpop { padding:6px; display:flex; flex-direction:column; gap:2px; }
 .dsh-sc-catpop button { text-align:left; cursor:pointer; padding:6px 10px; border:none; background:transparent;
   color:var(--sc-ink); font-size:12.5px; font-family:inherit; border-radius:6px; }
 .dsh-sc-catpop button:hover { background:rgba(201,162,75,.14); color:var(--sc-gold-hi); }
 .dsh-sc-catpop button.active { color:var(--sc-gold); font-weight:650; }
 .dsh-sc-catpop button.clear { color:var(--sc-danger); border-top:1px solid var(--sc-line-soft); margin-top:4px; }
 .dsh-sc-catpop button.clear:hover { background:rgba(232,112,90,.14); color:#ff9a86; }
+
+/* ── original-text panel (the skill's own name / description) ─────────────
+   The card face shows the Chinese overlay once a card has been translated, and
+   it clamps the description to six card-sized lines either way — so the text
+   the skill was actually installed with becomes unreadable. This panel is the
+   plain, selectable copy of it. */
+.dsh-sc-srcpop { padding:10px 12px; color:var(--sc-ink); }
+.dsh-sc-srcpop-title { font-size:11px; letter-spacing:.08em; color:var(--sc-gold); margin-bottom:6px; }
+.dsh-sc-srcpop-label { font-size:10.5px; color:var(--sc-ink-3); margin:9px 0 3px; }
+.dsh-sc-srcpop-name { font-size:12.5px; font-weight:650; color:var(--sc-gold-hi); word-break:break-word;
+  font-family:var(--dsw-alias-font-mono,ui-monospace,Menlo,monospace); }
+.dsh-sc-srcpop-desc { font-size:12px; line-height:1.55; word-break:break-word; white-space:pre-wrap;
+  user-select:text; }
+.dsh-sc-srcpop-desc.empty { color:var(--sc-ink-3); font-style:italic; }
+.dsh-sc-srcpop-meta { margin-top:10px; padding-top:8px; border-top:1px solid var(--sc-line-soft);
+  font-size:10px; color:var(--sc-ink-3); word-break:break-all; }
 
 /* composer chips: skills already applied to the active session.
    Collapsed by default (a count pill) so the composer row never grows; the
@@ -790,6 +863,9 @@ window.__ModuleLoader__.load({
         appliedTo: '已应用到本次会话：',
         revoke: '移除该技能', revokeFail: '移除失败：', appliedNone: '本会话未应用技能',
         revokeAll: '全部移除',
+        // original text of the skill (the card face may be translated/clamped)
+        origTitle: '原始信息', origName: '原始技能名', origDesc: '原始描述',
+        origNoDesc: '（这个技能没有写描述）', origFrom: '来源：',
       },
       en: {
         nav: 'Skills', title: 'Skill Cards', search: 'Search skill name or description…',
@@ -819,6 +895,9 @@ window.__ModuleLoader__.load({
         appliedTo: 'Applied to this session:',
         revoke: 'Remove this skill', revokeFail: 'Failed to remove: ', appliedNone: 'No skills applied yet',
         revokeAll: 'Remove all',
+        // original text of the skill (the card face may be translated/clamped)
+        origTitle: 'Original skill', origName: 'Original name', origDesc: 'Original description',
+        origNoDesc: '(this skill ships no description)', origFrom: 'Source: ',
       },
     }
 
@@ -1628,9 +1707,12 @@ ${draft}`
     }
 
     /** Category chip anchored on the card's stats row (opens the popover). */
-    function gcCatChip({ catLabel, catOpen, onToggle }) {
+    function gcCatChip({ catLabel, catOpen, onToggle, anchorRef }) {
       return e('span', {
         className: 'dsh-sc-cat', role: 'button', tabIndex: 0,
+        // The ref lets the popover exempt its own trigger from the outside-click
+        // close, so the chip can also close the menu it opened.
+        ref: anchorRef,
         'aria-haspopup': 'true', 'aria-expanded': catOpen ? 'true' : 'false',
         onClick: (ev) => { ev.stopPropagation(); onToggle() },
         onKeyDown: (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); onToggle() } },
@@ -1787,6 +1869,78 @@ ${draft}`
       )
     }
 
+    /**
+     * Geometry for a popover anchored to a card, measured against the stage.
+     *
+     * The stage (`.dsh-sc-stage`) is the panel's only scroll container and it
+     * clips its overflow, so a hard-coded `top:100%` menu was wrong twice over
+     * on a full wall: a long category list ran past the stage's bottom edge and
+     * the tail of it could not be clicked at all, and (because every card is its
+     * own paint layer) the menu was painted over by the cards that follow it.
+     *
+     * Measure ONCE, when the popover opens — never during render, never per
+     * event — and hand back the numbers the popover needs as inline styles:
+     *   up     — which side of the card it hangs off (animation direction)
+     *   room   — its max height before the stage would clip it (it scrolls)
+     *   width  — clamped to the stage, so it never spawns a horizontal scrollbar
+     *   left   — horizontal offset from the card, nudged only as far as needed
+     *   top    — vertical offset from the card, likewise nudged back inside the
+     *            stage; when the free space beside the card is too small to be
+     *            useful the panel is allowed to slide OVER its own card (never
+     *            over the stage edge), because a menu you can read beats one
+     *            that is clipped away
+     *
+     * Everything is measured off the card WRAPPER, not off the trigger: the
+     * wrapper is the popover's containing block, so `top:100%` hangs off the
+     * card's bottom edge no matter how far down the card the chip sits.
+     *
+     * The clamps use the part of the stage that is actually ON SCREEN: in the
+     * modal the two coincide, but the inline settings panel lives inside the
+     * host's own scroller, so the stage itself can be partially scrolled out of
+     * view — a panel placed "inside the stage" would then still be off screen.
+     *
+     * With no measurable stage (DOM-less tests, an exotic mount) it degrades to
+     * plain `top:100%` behaviour from CSS instead of refusing to open.
+     */
+    function popoverPlacement(anchorEl, wantedWidth, preferredHeight) {
+      const fallback = { up: false, room: preferredHeight, width: wantedWidth, left: 0, top: null }
+      if (!anchorEl || typeof anchorEl.closest !== 'function' || typeof anchorEl.getBoundingClientRect !== 'function') {
+        return fallback
+      }
+      const stage = anchorEl.closest('.dsh-sc-stage')
+      const box = anchorEl.closest('.dsh-sc-card-wrap') || anchorEl
+      if (!stage || typeof box.getBoundingClientRect !== 'function') return fallback
+      const a = box.getBoundingClientRect()
+      const s = stage.getBoundingClientRect()
+      if (!s.height || !a.height) return fallback
+      const GAP = 4   // the seam between the card and the panel
+      const PAD = 8   // keep this much clear of the stage's own edge
+      const MIN = 160 // below this, prefer overlapping the card to a sliver of menu
+      const vp = typeof window !== 'undefined' && window.innerHeight ? window : null
+      const bound = {
+        top: (vp ? Math.max(s.top, 0) : s.top) + PAD,
+        bottom: (vp ? Math.min(s.bottom, vp.innerHeight) : s.bottom) - PAD,
+        left: (vp ? Math.max(s.left, 0) : s.left) + PAD,
+        right: (vp ? Math.min(s.right, vp.innerWidth) : s.right) - PAD,
+      }
+      const width = Math.max(170, Math.min(wantedWidth, bound.right - bound.left))
+      const spaceBelow = bound.bottom - a.bottom - GAP
+      const spaceAbove = a.top - bound.top - GAP
+      const up = spaceBelow < preferredHeight && spaceAbove > spaceBelow
+      const outside = Math.max(0, up ? spaceAbove : spaceBelow)
+      const room = Math.min(preferredHeight, Math.max(outside, Math.min(MIN, Math.max(96, bound.bottom - bound.top))))
+      // Where it wants to sit relative to the card, then shifted back inside the
+      // stage. minTop is the top-edge bound, maxTop the bottom-edge one; taking
+      // max(minTop, maxTop) keeps the interval valid when a card is taller than
+      // the stage, so the clamp can never invert.
+      const wanted = up ? -room - GAP : a.height + GAP
+      const minTop = bound.top - a.top
+      const maxTop = bound.bottom - a.top - room
+      const top = Math.round(Math.min(Math.max(wanted, minTop), Math.max(minTop, maxTop)))
+      const left = Math.round(Math.max(bound.left - a.left, Math.min(0, bound.right - a.left - width)))
+      return { up, room, width, left, top }
+    }
+
     /* ------------------------------------------------------------------ *
      * Card
      * ------------------------------------------------------------------ */
@@ -1800,9 +1954,28 @@ ${draft}`
       const effectiveTitle = custom?.i18n?.zh || custom?.title || skill.name
       const effectiveDesc = custom?.i18n?.zhDesc || custom?.description || skill.description || ''
       const [imgError, setImgError] = useState(false)
-      // Per-card category picker (a small popover of category chips).
-      const [catOpen, setCatOpen] = useState(false)
-      const catRef = useRef(null)
+      // ONE card popover at a time: the category picker ('cat') and the
+      // original-text panel ('info'). It carries the measured placement, so
+      // opening is a single state write — the layout read happens in the click
+      // handler, never during render. `null` = both closed.
+      const [pop, setPop] = useState(null)
+      const popRef = useRef(null)        // the open popover itself
+      const catAnchorRef = useRef(null)  // the category chip that opens it
+      const infoAnchorRef = useRef(null) // the "原" button that opens it
+      const catOpen = !!pop && pop.kind === 'cat'
+      const infoOpen = !!pop && pop.kind === 'info'
+      /**
+       * Toggle a card popover. `anchor` is the ref of the control it hangs off;
+       * that control is exempt from the outside-click close below, so it can
+       * also close its own menu — without the exemption the pointerdown that
+       * precedes a click on the anchor closed the menu and the click instantly
+       * reopened it, so the toggle never closed anything.
+       */
+      const togglePop = (kind, anchor, wantedWidth, preferredHeight) => {
+        if (pop && pop.kind === kind) { setPop(null); return }
+        const el = anchor && anchor.current ? anchor.current : anchor
+        setPop({ kind, ...popoverPlacement(el, wantedWidth, preferredHeight) })
+      }
       // The host answers an absolute "/plugins/..." path; re-anchor it to the
       // page base so a reverse-proxy sub-path mount still resolves. Applies to
       // both the scanned cover and an uploaded custom image URL.
@@ -1830,62 +2003,86 @@ ${draft}`
       // Reset the error latch when the URL changes (e.g. after the user edits
       // the image from broken to valid), so a later load can succeed again.
       useEffect(() => { setImgError(false) }, [effectiveImg])
-      // Close the category popover on outside click / Escape.
+      // Close the card popover on outside click / Escape. Both anchors are
+      // exempt: the pointerdown that precedes a click on the anchor would
+      // otherwise close the menu, and the click would immediately reopen it —
+      // so the toggle could never close its own menu.
       useEffect(() => {
-        if (!catOpen) return
-        const close = (ev) => { if (catRef.current && !catRef.current.contains(ev.target)) setCatOpen(false) }
-        const onKey = (ev) => { if (ev.key === 'Escape') setCatOpen(false) }
+        if (!pop) return
+        const close = (ev) => {
+          const target = ev.target
+          if (popRef.current && popRef.current.contains(target)) return
+          if (catAnchorRef.current && catAnchorRef.current.contains(target)) return
+          if (infoAnchorRef.current && infoAnchorRef.current.contains(target)) return
+          setPop(null)
+        }
+        const onKey = (ev) => { if (ev.key === 'Escape') setPop(null) }
         window.addEventListener('pointerdown', close)
         window.addEventListener('keydown', onKey)
         return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('keydown', onKey) }
-      }, [catOpen])
+      }, [pop])
       // Game-card (Yu-Gi-Oh style) face: theme-variable frame + art well +
       // parchment description + ATK/uses row. The category theme drives the
       // colours; an SR skill keeps a permanent foil sweep. The translation
       // button ("译") opens the single-card i18n form.
       const lv = levelOf(uses)
       const sr = isSrCard(skill.name)
-      return e('div', { className: 'dsh-sc-card-wrap' },
-        e('button', {
-          type: 'button',
-          className: `dsh-sc-card ${tint}${selected ? ' selected' : ''}`,
+      // `pop-open` raises THIS card's wrapper so the popover is not covered by
+      // the cards that follow it (every card is its own paint layer — see the
+      // .dsh-sc-card-wrap.pop-open rule).
+      return e('div', { className: `dsh-sc-card-wrap${pop ? ' pop-open' : ''}` },
+        // The card is a plain container, NOT the click target. It owns the
+        // selection ring and the 3D pose, and holds three SIBLINGS: the
+        // selection button (wrapping the face), the tick, and the tool cluster.
+        // That layout is deliberate — the face used to be a <button> with the
+        // tool buttons nested inside it, which is invalid HTML, and the same
+        // nesting under role="button" would have hidden the tools from
+        // assistive tech (a button's children are presentational).
+        e('div', {
+          className: `dsh-sc-card ${tint}${selected ? ' selected' : ''}${custom?.i18n?.zh ? ' i18n-done' : ''}`,
           'data-name': skill.name,
-          onClick: () => onToggle(skill.name),
-          'aria-pressed': selected ? 'true' : 'false',
-          'aria-label': effectiveDesc ? `${effectiveTitle} — ${effectiveDesc}` : effectiveTitle,
-          title: effectiveTitle,
           style: { padding: 0, border: 'none', background: 'transparent', overflow: 'visible' },
         },
-          e('div', {
-            className: `dsh-sc-gcard${sr ? ' sr' : ''}${custom?.i18n?.zh ? ' i18n-done' : ''}`,
-            style: gcStyleProps(skill.category),
+          // A real <button> around the face: native Enter/Space, native focus
+          // ring, and it keeps the face hovered — `.dsh-sc-gcard:hover` still
+          // drives the foil sweep and the ATK row's hover glow.
+          e('button', {
+            type: 'button',
+            className: 'dsh-sc-cardhit',
+            onClick: () => onToggle(skill.name),
+            'aria-pressed': selected ? 'true' : 'false',
+            'aria-label': effectiveDesc ? `${effectiveTitle} — ${effectiveDesc}` : effectiveTitle,
+            title: effectiveTitle,
           },
-            e('div', { className: 'gc-inner' },
-              gcCardChildren({
-                title: effectiveTitle,
-                desc: effectiveDesc,
-                img: effectiveImg && !imgError ? effectiveImg : null,
-                glyph: monogram(effectiveTitle),
-                catLabel: catLabel || '·',
-                uses,
-                lv,
-                sr,
-                catChip: gcCatChip({
-                  catLabel,
-                  catOpen,
-                  onToggle: () => setCatOpen((v) => !v),
-                }),
-              })),
-            e('div', { className: 'dsh-sc-check', 'aria-hidden': 'true' }, selected ? '✓' : ''),
             e('div', {
-              className: 'dsh-sc-setimg',
-              role: 'button',
-              tabIndex: 0,
-              onClick: (ev) => { ev.stopPropagation(); onSetImage(skill) },
-              onKeyDown: (ev) => {
-                if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); onSetImage(skill) }
-              },
-            }, t('setImage')),
+              className: `dsh-sc-gcard${sr ? ' sr' : ''}`,
+              style: gcStyleProps(skill.category),
+            },
+              e('div', { className: 'gc-inner' },
+                gcCardChildren({
+                  title: effectiveTitle,
+                  desc: effectiveDesc,
+                  img: effectiveImg && !imgError ? effectiveImg : null,
+                  glyph: monogram(effectiveTitle),
+                  catLabel: catLabel || '·',
+                  uses,
+                  lv,
+                  sr,
+                  catChip: gcCatChip({
+                    catLabel,
+                    catOpen,
+                    anchorRef: catAnchorRef,
+                    // 200px fits every category label; 300px is roughly eight rows
+                    // before the panel starts scrolling.
+                    onToggle: () => togglePop('cat', catAnchorRef, 200, 300),
+                  }),
+                }))),
+          ),
+          e('div', { className: 'dsh-sc-check', 'aria-hidden': 'true' }, selected ? '✓' : ''),
+          // Every hover control, in one wrapping row in the top-LEFT corner —
+          // see .dsh-sc-cardtools. Order reads state → the card's text tools
+          // (中文化 / 还原 / 原文) → its artwork tools (卡图 / 封面).
+          e('div', { className: 'dsh-sc-cardtools' },
             e('button', {
               type: 'button',
               className: 'dsh-sc-star',
@@ -1908,6 +2105,20 @@ ${draft}`
               title: '还原为英文原名（清除中文化）',
               onClick: (ev) => { ev.stopPropagation(); onResetI18n(skill) },
             }, '↺') : null,
+            // The skill's OWN name/description. The face shows the Chinese
+            // overlay once translated and clamps the description to six
+            // card-sized lines either way, so without this the installed text
+            // is simply not readable anywhere in the panel.
+            e('button', {
+              type: 'button',
+              className: 'dsh-sc-srcbtn',
+              ref: infoAnchorRef,
+              'aria-haspopup': 'dialog',
+              'aria-expanded': infoOpen ? 'true' : 'false',
+              'aria-label': t('origTitle'),
+              title: t('origTitle'),
+              onClick: (ev) => { ev.stopPropagation(); togglePop('info', infoAnchorRef, 340, 320) },
+            }, '原'),
             e('button', {
               type: 'button',
               className: 'dsh-sc-artbtn',
@@ -1915,19 +2126,48 @@ ${draft}`
               title: '生成卡图提示词 / 导入生成图',
               onClick: (ev) => { ev.stopPropagation(); onArtPrompt(skill) },
             }, '🎨'),
+            // The one labelled control: the entry to the card editor
+            // (cover / title / description). A real <button> — it is a SIBLING
+            // of the face button, so nothing forces it to be a role="button"
+            // div with hand-rolled Enter/Space handling.
+            e('button', {
+              type: 'button',
+              className: 'dsh-sc-setimg',
+              onClick: (ev) => { ev.stopPropagation(); onSetImage(skill) },
+            }, t('setImage')),
           ),
         ),
-        catOpen ? e('div', { className: 'dsh-sc-catpop', ref: catRef, role: 'menu' },
+        catOpen ? e('div', {
+          className: `dsh-sc-catpop${pop.up ? ' up' : ''}`,
+          ref: popRef, role: 'menu',
+          // Placement measured on open: capped height (it scrolls) plus a
+          // top/left clamped inside the stage, so no row of the list is ever
+          // clipped away unreachable.
+          style: { width: pop.width, maxHeight: pop.room, left: pop.left, top: pop.top },
+        },
           Object.entries(catDefs).map(([id, def]) =>
             e('button', {
               key: id, type: 'button', role: 'menuitem', 'data-cat': id,
               className: skill.category === id ? 'active' : '',
-              onClick: (ev) => { ev.stopPropagation(); onCategory(skill.name, id); setCatOpen(false) },
+              onClick: (ev) => { ev.stopPropagation(); onCategory(skill.name, id); setPop(null) },
             }, def.label)),
           e('button', {
             type: 'button', role: 'menuitem', className: skill.category === skill.suggestedCategory ? '' : 'clear',
-            onClick: (ev) => { ev.stopPropagation(); onCategory(skill.name, null); setCatOpen(false) },
+            onClick: (ev) => { ev.stopPropagation(); onCategory(skill.name, null); setPop(null) },
           }, t('clearCategory')),
+        ) : null,
+        infoOpen ? e('div', {
+          className: `dsh-sc-srcpop${pop.up ? ' up' : ''}`,
+          ref: popRef, role: 'dialog', 'aria-label': t('origTitle'),
+          style: { width: pop.width, maxHeight: pop.room, left: pop.left, top: pop.top },
+        },
+          e('div', { className: 'dsh-sc-srcpop-title' }, t('origTitle')),
+          e('div', { className: 'dsh-sc-srcpop-label' }, t('origName')),
+          e('div', { className: 'dsh-sc-srcpop-name' }, skill.name),
+          e('div', { className: 'dsh-sc-srcpop-label' }, t('origDesc')),
+          e('div', { className: `dsh-sc-srcpop-desc${skill.description ? '' : ' empty'}` },
+            skill.description || t('origNoDesc')),
+          skill.label ? e('div', { className: 'dsh-sc-srcpop-meta' }, `${t('origFrom')}${skill.label}`) : null,
         ) : null,
       )
     })
@@ -2446,11 +2686,16 @@ ${draft}`
       // never fires after it is gone.
       useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
 
-      // Close on Escape (the image form first if it is open), then the overlay
-      // the panel lives in (the modal or the settings section handler).
+      // Close on Escape (the image form first if it is open, then a card
+      // popover, then the overlay the panel lives in — the modal or the
+      // settings section handler). Card popovers are per-card local state, so
+      // the layering is detected from the DOM: this handler is registered at
+      // mount and therefore runs BEFORE the popover's own Escape handler, which
+      // is what makes "dismiss the menu without losing the panel" possible.
       useEffect(() => {
         const onKey = (ev) => {
           if (ev.key !== 'Escape') return
+          if (document.querySelector('.dsh-sc-catpop, .dsh-sc-srcpop')) return
           if (editing) setEditing(null)
           else if (onRequestClose) onRequestClose()
         }
