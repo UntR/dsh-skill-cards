@@ -315,3 +315,34 @@ test('game-card skin: theme table drives the frame; unknown categories hash a hu
   // otherwise a player cannot tell at grid size why one card glows.
   assert.match(clientSrc, /className: 'gc-sr'/, 'SR cards must render a readable rarity plate')
 })
+
+test('/applied answers for the session the caller names, never a remembered one', async () => {
+  // Two windows share one host process. Window A applies skills; window B asks
+  // for its own (empty) state. An earlier version remembered the last explicit
+  // session globally, so B was answered with A's skills.
+  //
+  // This asserts the route contract that makes isolation possible: a named
+  // sessionId decides the answer, and a request with no id must NOT silently
+  // inherit another window's session.
+  const source = hostSrc
+  assert.ok(!/setExplicit/.test(source),
+    'the host must not keep a cross-request "explicit session" — it leaks between windows')
+  assert.ok(!/this\.explicitId/.test(source),
+    'no global explicitId field may exist on the session tracker')
+  assert.match(source, /const id = explicit \|\| tracker\.current\(\)/,
+    '/applied must prefer the caller-supplied sessionId')
+})
+
+test('the client always states its own session id when asking for applied skills', () => {
+  const source = clientSrc
+  // The composer and settings slots are session-scoped and receive the owning
+  // session as `sessionId`; the wrapper must forward it to /applied.
+  assert.match(source, /function useOwnSessionId\(props\)/, 'a shared resolver must exist')
+  assert.match(source, /props && props\.sessionId/, 'the direct sessionId prop must be preferred')
+  assert.match(source, /api\(`\/applied\$\{q\}`\)/, '/applied must carry the session id')
+  assert.match(source, /const q = ownSessionId \? `\?sessionId=\$\{encodeURIComponent\(ownSessionId\)\}` : ''/,
+    'the query must encode the window own session id')
+  // Both entries must forward props, or the wrapper cannot see sessionId.
+  assert.match(source, /e\(withAppliedSync\(ComposerButton\), \{ store, t, \.\.\.props \}\)/,
+    'the composer entry must forward its slot props')
+})

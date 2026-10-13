@@ -1,7 +1,7 @@
 {
   "name": "dsh-skill-cards",
-  "version": "1.0.1",
-  "description": "技能卡片 — 在对话框底部/侧边栏放一个「技能」入口，点开是以图片卡片呈现的技能浏览弹窗，支持自定义封面图、单选/多选，选中后仅对本次会话生效。Skill Cards for DeepSeek Harness.",
+  "version": "1.0.2",
+  "description": "技能卡片 — 在聊天输入框下方与「设置 → 技能」各放一个入口，点开是以图片卡片呈现的技能浏览弹窗，支持自定义封面图、单选/多选，选中后仅对下一条消息生效，发送即自动移除。Skill Cards for DeepSeek Harness.",
   "type": "module",
   "main": "lib/index.js",
   "keywords": [

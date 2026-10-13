@@ -6,12 +6,12 @@
 
 *以图片卡片浏览本机技能 · 自定义封面与卡名 · 智能分类 · 3D 立体卡片墙 · 抽卡揭示 · 一键注入当前会话*
 
-[![npm version](https://img.shields.io/badge/npm-1.0.1-c9a24b)](https://www.npmjs.com/package/dsh-skill-cards)
+[![npm version](https://img.shields.io/badge/npm-1.0.2-c9a24b)](https://www.npmjs.com/package/dsh-skill-cards)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org)
-[![tests](https://img.shields.io/badge/tests-66%20passing-brightgreen)](test/)
+[![tests](https://img.shields.io/badge/tests-70%20passing-brightgreen)](test/)
 
-一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件。在**聊天输入框下方**放一个「技能」按钮，同时在**设置 → 技能**里内嵌完整管理器，点开是一个以**图片卡片**呈现的技能浏览弹窗。选中技能后**仅对本次会话生效**——不动磁盘、不污染全局目录。
+一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件。在**聊天输入框下方**放一个「技能」按钮，同时在**设置 → 技能**里内嵌完整管理器，点开是一个以**图片卡片**呈现的技能浏览弹窗。选中技能后**仅对下一条消息生效**（发送即自动移除）——不动磁盘、不污染全局目录。
 
 [功能](#-功能一览) · [安装](#-安装) · [使用](#-使用) · [API](#-http-api-参考) · [开发](#-开发) · [疑难排查](#-疑难排查) · [贡献](CONTRIBUTING.md)
 
@@ -32,9 +32,11 @@
 ### 两个入口
 
 - **聊天输入框下方「技能」按钮** — 注册在官方 `conversation.input.right` 槽位（输入框下方、发送按钮左侧），走官方槽位而非 DOM 探测，稳定可靠。
-- **设置 → 技能** — 整个管理器**内嵌**在该设置项内（`settings.section`），点开即用，无需再开弹窗。该入口能精确拿到当前会话 id。
+- **设置 → 技能** — 整个管理器**内嵌**在该设置项内（`settings.section`），点开即用，无需再开弹窗。
 
-> 插件入口（DSH 自带的插件管理面板）**不做任何改动**——本插件只管「技能的可视化浏览与本次会话引入」。
+两个入口都是**会话级**槽位，宿主会把所属会话的 `sessionId` 直接传给它们，因此**多窗口天然隔离**——在 A 窗口应用的技能不会出现在 B 窗口。
+
+> 插件入口（DSH 自带的插件管理面板）**不做任何改动**——本插件只管「技能的可视化浏览与按需引入」。
 
 ### 🎴 游戏王式卡面（按分类自动换装）
 
@@ -62,10 +64,37 @@
 - 上传的图片作为**文件**存到 `~/.dsh/skill-cards-images/`，配置里只存受保护的同源服务 URL —— **不存 base64**，防止配置被撑爆。支持 `png / jpg / webp / gif / svg`。
 - 落盘于 `~/.dsh/skill-cards.json`，刷新即生效。
 
-### 🎴 应用本次会话（抽卡仪式感）
+### 🎴 应用到下一条消息（抽卡仪式感）
 
 - 点「应用到本次会话」：弹窗先关闭，暗金纹章卡背**依次飞入**屏幕中央，再**逐张 3D 翻面揭示**（间隔 420ms），SR 卡翻面瞬间金光爆闪。点击任意处 / `Esc` 可跳过；系统「减弱动效」时直接跳过。
 - 成功引入的技能名以彩色标签出现在输入框「技能」按钮上方（约 4 秒后消失）。
+
+#### 技能是怎么生效的
+
+技能**不是**随消息一起发送的，也不会写进输入框。点击「应用」时，宿主端把它们注册到**当前会话的 skills 服务**上：
+
+```
+skills.register({ name, description, content, resourceBase, invocation, source })
+```
+
+所以从这一刻起，该会话的 agent 就一直能看到它们 —— 你发什么内容都会用上。标签只是**状态展示**，不是待发送的内容，不存在「重复发送」。
+
+会话被关闭时，宿主会收到 `agent-removed` 事件并自动注销这些技能。
+
+#### 一次性：发送后自动移除
+
+**「应用」始终是一次性的。** 你选中的技能只服务于**下一条要发的消息**：按下回车时它们被自动注销，标签随之消失。下一条消息不会带上这批技能。
+
+这正是本插件与「会话级常驻」的区别 —— 技能是**逐条消息按需装载**的，不会在你看不见的地方长期影响后续对话。
+
+若想提前手动移除，点标签上的 × 或面板里的「全部移除」即可。
+
+> **实现说明**：DSH 未对外暴露「消息已发送」事件（其提交状态机 `begin-submit` / `send-committed` / `commit-draft` 均为 `dsh-client-ui-conversation` 的内部实现）。而宿主**只在 `submit-settled` 且 `ev.ok` 后才清空编辑器**——即应答被接受之后，且回合进行中可能保留原文——所以「草稿变空」这个信号既滞后又不可靠。
+>
+> 最终采用宿主自身会响应的两个信号：**捕获阶段的 `keydown` Enter** 与**点击主按钮** —— 两者在宿主内部都归到同一个 `keyboard.submit(mode, …)` 入口。
+>
+> - **Enter**：监听宿主输入框标记 `div[role=textbox][data-composer-input]`，过滤 `Shift+Enter` 与输入法组合中的 Enter。必须在**捕获阶段**，因为宿主的键盘映射会在 Enter 上终止事件传播，冒泡阶段的监听器永远收不到。
+> - **发送按钮**：宿主没给它 data 属性，且**发送与停止按钮共用同一个 `primary` 类**。因此以插件自己的按钮为锚点判断是否位于同一输入栏，再按 `primary` 类或发送文案匹配，并排除停止/取消类文案 —— 取消回合不算提交。
 
 ### 🌏 技能中文化
 
@@ -221,7 +250,8 @@ cover.png   cover.jpg   cover.jpeg   cover.webp   cover.svg   preview.png   prev
 - **技能来源**：宿主端 [lib/skills-scan.js](lib/skills-scan.js) 扫描上述技能根，解析 `SKILL.md` 的 YAML frontmatter（`name` / `description`，支持行内、引号、块标量三种真实写法），并探测同目录封面图。
 - **会话级引入**：`POST /introduce` → `ctx.get('agents')?.get(sessionId)` 取出当前会话的 agent → 对其**会话作用域**的 `skills` 服务调用 `register({ name, description, content, resourceBase, invocation, source })`。纯内存注册，重启前一直有效，不写任何技能目录。
 - ** disposer 保留**：每次注册返回的 disposer 都存在 `sessionId → skillName → dispose` 的注册表里，因此技能**可以被撤销**；agent 移除时该表整块清理，避免出现「幽灵技能」。
-- **当前会话判定**：设置页槽位能拿到 `useSessions` 的会话 id 并写入共享 store；从输入框按钮打开时拿不到，回退到宿主端跟踪的最近活跃会话。
+- **当前会话判定**：两个入口都是**会话级槽位**（`scope: "session"`），宿主把所属会话的 `sessionId` 作为标准 props 直接传入。客户端优先取它，并在每次 `/applied`、`/introduce`、`/revoke` 时**显式带上**。
+  > 宿主是**单进程、被所有窗口共享**的，所以任何「记住最近一次会话」的做法都会跨窗口串味——早期版本正是如此：A 窗口应用后，B 窗口因为没带 id 而拿到 A 的技能。会话 id 必须随每个请求传递，绝不留在宿主端的全局字段里。
 - **数据落盘**：
 
 | 文件 | 内容 |
@@ -269,7 +299,7 @@ dsh-skill-cards/
 ├── client/
 │   └── client.js         # ── 浏览器端：入口按钮 + 设置面板 + 卡片浮层 + 3D 墙 + 出卡
 ├── diagnose/             # ── 脱离 DSH 的自测页（真实 React 渲染）
-└── test/                 # ── node:test 单测（66 个）
+└── test/                 # ── node:test 单测（70 个）
 ```
 
 ---
@@ -278,7 +308,7 @@ dsh-skill-cards/
 
 ```bash
 npm install      # 无运行时依赖，仅为 diagnose 页拉取 React UMD
-npm test         # node --test，66 个用例
+npm test         # node --test，70 个用例
 npm run check    # 对所有源码做 node --check 语法校验
 npm run diagnose # 启动独立自测页 http://127.0.0.1:8940/diagnose/
 ```
@@ -298,7 +328,7 @@ npm run diagnose # 启动独立自测页 http://127.0.0.1:8940/diagnose/
 | 症状 | 原因 / 解决 |
 | --- | --- |
 | 输入框下方没有「技能」按钮 | `conversation.input.right` 是会话级槽位，尚未进入会话时不渲染。改从 **设置 → 技能** 进入 |
-| 同时开多个会话时应用到了错的会话 | 输入框入口拿不到会话 id，依赖「最近活跃会话」。从 **设置 → 技能** 进入可精确命中 |
+| A 窗口应用的技能出现在 B 窗口 | 已修复（1.0.2）。两端都不会「记住」会话，id 随每个请求传递 |
 | 卡片列表为空 | 技能没放在已识别的技能根目录（见上文表格）。面板会列出本次扫描过的目录，注意看哪个标红 |
 | 卡片没有插画 | 目录内没有 `cover.*` / `preview.*` 文件。用「图片」按钮上传或填 URL |
 | 没有 3D 效果 | WebGL 不可用、three.js 加载失败或系统开了「减弱动态效果」—— 属自动降级，功能不受影响 |
@@ -327,7 +357,7 @@ npm run diagnose # 启动独立自测页 http://127.0.0.1:8940/diagnose/
 npm run check && npm test
 ```
 
-- 新增功能同时补 `test/` 下的用例（当前 66 个）。
+- 新增功能同时补 `test/` 下的用例（当前 70 个）。
 - 遵守上方 **架构约束** 五条，尤其是会话作用域与路由前缀。
 - UI 改动请在支持 / 不支持 WebGL、以及「减弱动态效果」三种情形下各验一次。
 - 中文与英文 README 同步更新。

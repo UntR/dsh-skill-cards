@@ -48,6 +48,14 @@ function fakeReact() {
 
 /** Evaluate client.js in a sandbox and return the captured load spec. */
 function captureLoadSpec() {
+  return captureLoadSpecWithDocument(null, null)
+}
+
+/**
+ * Same as captureLoadSpec but lets a test supply its own `document` and `fetch`,
+ * so the composer watcher (keydown listener + POST /revoke) can be driven.
+ */
+function captureLoadSpecWithDocument(doc, fetchImpl) {
   const source = readFileSync(clientPath, 'utf8')
   let spec = null
   const sandbox = {
@@ -65,7 +73,7 @@ function captureLoadSpec() {
     clearTimeout,
     setInterval,
     clearInterval,
-    document: {
+    document: doc ?? {
       createElement: () => ({
         style: {}, setAttribute() {}, appendChild() {}, addEventListener() {},
         remove() {}, classList: { add() {}, remove() {} },
@@ -78,7 +86,8 @@ function captureLoadSpec() {
       addEventListener() {},
       removeEventListener() {},
     },
-    fetch: async () => ({ ok: true, json: async () => ({}) }),
+    fetch: fetchImpl ?? (async () => ({ ok: true, json: async () => ({}) })),
+    Promise,
   }
   sandbox.globalThis = sandbox
   createContext(sandbox)
@@ -222,6 +231,9 @@ test('conversation.input.right composer slot is registered', () => {
   // the wrapper syncs `store.applied` (GET /applied) so the composer can render
   // revocable chips; unwrap it to reach the host-parity shape beneath.
   assert.equal(out.type.name, 'AppliedSynced', 'composer entry wraps ComposerButton with the applied-sync wrapper')
+  // The wrapper also installs the one-shot composer watcher. It must tolerate a
+  // DOM-less environment (no MutationObserver / no document) instead of throwing
+  // during mount — mounting the wrapper is enough to exercise that.
   const inner = out.type(out.props)
   assert.equal(inner.type.name, 'ComposerButton', 'wrapper renders ComposerButton')
   const bare = inner.type(inner.props)
@@ -436,3 +448,135 @@ function cssBlock() {
   assert.ok(start !== -1, 'CSS template literal not found')
   return source.slice(start + 'const CSS = `'.length, source.indexOf('function ensureStyle'))
 }
+
+test('applying skills is one-shot: Enter revokes them, other keys do not', async () => {
+  // Behavioural test for the composer watcher. The host exposes no "message
+  // sent" event (its submit state machine is internal to
+  // dsh-client-ui-conversation), so the client listens for Enter on the host's
+  // own textbox marker. The host only clears the editor AFTER the turn is
+  // accepted, so "draft went empty" is both late and unreliable — Enter is the
+  // real intent signal.
+  const listeners = []
+  let revoked = null
+  const sandboxDocument = {
+    createElement: () => ({
+      style: {}, setAttribute() {}, appendChild() {}, addEventListener() {},
+      remove() {}, classList: { add() {}, remove() {} },
+    }),
+    head: { appendChild() {} },
+    body: { appendChild() {} },
+    getElementById: () => null,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener: (type, fn, capture) => { listeners.push({ type, fn, capture }) },
+    removeEventListener: () => {},
+  }
+  const spec = captureLoadSpecWithDocument(sandboxDocument, async (url, init) => {
+    if (url.endsWith('/revoke')) {
+      revoked = JSON.parse(init.body)
+      return { ok: true, json: async () => ({ ok: true, results: [] }) }
+    }
+    if (url.endsWith('/applied')) return { ok: true, json: async () => ({ ok: true, skills: [] }) }
+    if (url.endsWith('/active-session')) return { ok: true, json: async () => ({ ok: true, sessionId: 's1' }) }
+    return { ok: true, json: async () => ({}) }
+  })
+
+  const react = fakeReact()
+  const mod = spec.factory((n) => {
+    if (n === 'react') return react
+    throw new Error(`unexpected require(${JSON.stringify(n)})`)
+  })
+  const registrations = []
+  const slots = {
+    register: (meta, component) => { registrations.push({ meta, component }); return () => {} },
+    inject: (key, factory) => { factory() },
+  }
+  const locale = { register: () => {}, bind: () => (key) => key }
+  mod.apply({ slots, locale, effect: (fn) => { fn(); return () => {} } })
+
+  const entry = registrations.find((r) => r.meta.name === 'conversation.input.right')
+  const wrapper = entry.component({})
+  wrapper.type(wrapper.props) // mounts: installs the keydown watcher
+
+  const watcher = listeners.find((l) => l.type === 'keydown')
+  assert.ok(watcher, 'the composer watcher must install a keydown listener')
+  // Capture phase: the host's keymap stops propagation on Enter, so a
+  // bubble-phase listener on document would never fire.
+  assert.equal(watcher.capture, true, 'the keydown listener must be capture-phase')
+
+  const enterOn = (opts = {}) => watcher.fn({
+    key: opts.key ?? 'Enter',
+    shiftKey: !!opts.shiftKey,
+    isComposing: !!opts.isComposing,
+    keyCode: opts.keyCode ?? 13,
+    target: { closest: () => (opts.inComposer === false ? null : {}) },
+  })
+
+  // Nothing applied yet: Enter must not call the host at all.
+  enterOn()
+  await Promise.resolve()
+  assert.equal(revoked, null, 'Enter with no applied skills must not revoke')
+
+  // Apply a set, then submit. The panel writes through store.setApplied.
+  const panelEntry = registrations.find((r) => r.meta.name === 'shell.overlay')
+  assert.ok(panelEntry, 'overlay registered')
+  // Reach the store the slots were given (the same object the panel uses).
+  const store = entry.component({}).props.store
+
+  // Keys that insert a newline or pick an IME candidate are not sends.
+  enterOn({ shiftKey: true })
+  enterOn({ isComposing: true })
+  enterOn({ keyCode: 229 })
+  enterOn({ inComposer: false })
+  await Promise.resolve()
+  assert.equal(revoked, null, 'shift/composition/foreign-target Enter must not revoke')
+
+  store.setApplied(['alpha', 'beta'])
+  enterOn()
+  await new Promise((r) => setTimeout(r, 0))
+  assert.ok(revoked, 'Enter must revoke the applied skills')
+  assert.deepEqual(revoked.names, ['alpha', 'beta'], 'every applied skill is revoked')
+  assert.equal(store.get().applied.length, 0, 'the chips must be cleared after a successful revoke')
+
+  // ---- the host's primary button takes the SAME submit path ----
+  // It calls keyboard.submit(mode, 'click'), so clicking it must revoke too.
+  const clicker = listeners.find((l) => l.type === 'click')
+  assert.ok(clicker, 'the composer watcher must install a click listener')
+  assert.equal(clicker.capture, true, 'the click listener must be capture-phase')
+
+  revoked = null
+  store.setApplied(['gamma'])
+  // The send and stop buttons share the same `primary` class; the stop button
+  // must never revoke, because cancelling a turn is not a submit.
+  clicker.fn({ target: { closest: () => ({ disabled: false, className: 'primary', getAttribute: () => '停止生成' }) } })
+  await Promise.resolve()
+  assert.equal(revoked, null, 'the stop button must not revoke')
+
+  // A disabled button cannot submit (the host disables it for an empty draft).
+  clicker.fn({ target: { closest: () => ({ disabled: true, className: 'primary', getAttribute: () => '发送消息' }) } })
+  await Promise.resolve()
+  assert.equal(revoked, null, 'a disabled button must not revoke')
+
+  // A non-primary button elsewhere (e.g. an attachment chip) must not revoke.
+  clicker.fn({ target: { closest: () => ({ disabled: false, className: 'chip', getAttribute: () => '移除附件' }) } })
+  await Promise.resolve()
+  assert.equal(revoked, null, 'an unrelated button must not revoke')
+
+  clicker.fn({ target: { closest: () => ({ disabled: false, className: 'primary', getAttribute: () => '发送消息' }) } })
+  await new Promise((r) => setTimeout(r, 0))
+  assert.ok(revoked, 'the primary send button must revoke the applied skills')
+  assert.deepEqual(revoked.names, ['gamma'], 'the clicked submit revokes the applied set')
+  assert.equal(store.get().applied.length, 0, 'the chips must clear after a button submit')
+})
+
+test('one-shot revocation reuses POST /revoke and keeps state on failure', () => {
+  const source = readFileSync(clientPath, 'utf8')
+  assert.match(source, /api\('\/revoke'/, 'one-shot must reuse POST /revoke')
+  // A failed revoke must leave the chips alone: claiming the skills are gone
+  // when the host still holds them would be a lie.
+  assert.match(source, /keep state; the chips stay accurate/,
+    'a failed revoke must not clear the chips')
+  // There must be no opt-in toggle: applying is always one-shot.
+  assert.ok(!/oneShot|dsh-sc-oneshot/.test(source),
+    'the one-shot toggle must not exist — the behaviour is unconditional')
+})

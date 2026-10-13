@@ -891,6 +891,26 @@ window.__ModuleLoader__.load({
       return id || undefined
     }
 
+    /**
+     * Resolve the session id this mount belongs to.
+     *
+     * This is what keeps two windows apart. The host half is a single process
+     * shared by every window, so any id it "remembers" is global: a client that
+     * does not state its own session gets whichever window touched the plugin
+     * last, which is how skills applied in window A appeared in window B.
+     *
+     * Slots are session-scoped, and the renderer hands the owning session to
+     * session-scoped slots directly as `sessionId` (see the slot contract in
+     * dsh-cordis-client-runner). Prefer it; fall back to the `useSessions`
+     * selector for any slot that only exposes the hook.
+     */
+    function useOwnSessionId(props) {
+      const direct = props && props.sessionId
+      if (typeof direct === 'string' && direct) return direct
+      const useSessions = props && props.useSessions
+      return typeof useSessions === 'function' ? useSessions(currentSessionIdOf) : undefined
+    }
+
     /* ------------------------------------------------------------------ *
      * API helpers
      * ------------------------------------------------------------------ */
@@ -3021,19 +3041,123 @@ ${draft}`
     function withAppliedSync(Component) {
       return function AppliedSynced(props) {
         const { store } = props
+        // This window's own session. Passed on every call so the host never has
+        // to fall back to its shared "last explicit session" — otherwise two open
+        // windows show each other's chips.
+        const ownSessionId = useOwnSessionId(props)
+        useEffect(() => {
+          if (ownSessionId) store.setSession(ownSessionId)
+        }, [store, ownSessionId])
         useEffect(() => {
           let disposed = false
+          const q = ownSessionId ? `?sessionId=${encodeURIComponent(ownSessionId)}` : ''
           ;(async () => {
             try {
-              const a = await api('/active-session')
-              if (!disposed && a.sessionId) store.setSession(a.sessionId)
-              const ap = await api('/applied')
+              const ap = await api(`/applied${q}`)
               if (!disposed) store.setApplied(ap.skills || [])
             } catch { /* no session / no applied — chips stay hidden */ }
           })()
           return () => { disposed = true }
-        }, [store])
+        }, [store, ownSessionId])
+        // Applying is always one-shot: the skills are revoked when the user
+        // submits their next message. See watchComposerSubmit for why the
+        // signal is the Enter key and not the draft going empty.
+        useEffect(() => watchComposerSubmit(store), [store])
         return e(Component, props)
+      }
+    }
+
+    /**
+     * Revoke the session's skills once the user sends their next message.
+     *
+     * Semantics: applying skills is ALWAYS one-shot. The user applies a set for
+     * the message they are about to send, and the set is torn down as soon as
+     * that message is submitted. There is deliberately no toggle — a session-
+     * scoped apply that silently persists for every later message is the thing
+     * this feature exists to avoid.
+     *
+     * Why keydown rather than watching the draft drain: the host only clears the
+     * editor on `submit-settled` with `ev.ok` (see the submission policy's
+     * `commit-draft` effect), i.e. AFTER the turn is accepted, and it may keep
+     * the text while the turn is in flight. Watching for "draft went empty" is
+     * therefore both late and unreliable. The intent signals are the two the host
+     * itself acts on: Enter in the composer, and a click on its primary button
+     * (both end in `keyboard.submit(mode, …)`).
+     *
+     * The host's own markers are used: the editable is
+     * div[role=textbox][aria-multiline][data-composer-input], and the primary
+     * button is matched by its aria-label. Enter during IME composition and
+     * Shift+Enter insert a newline instead of submitting, so both are filtered.
+     */
+    function watchComposerSubmit(store) {
+      if (typeof document === 'undefined') return undefined
+      let busy = false
+
+      /** Revoke every applied skill once, then clear the chips. */
+      const fire = () => {
+        const names = store.get().applied
+        if (names.length === 0 || busy) return
+        // A second submit while the first is still in flight is not a new send.
+        busy = true
+        const sessionId = store.get().sessionId
+        api('/revoke', { method: 'POST', body: JSON.stringify({ sessionId, names }) })
+          .then(() => {
+            store.setApplied([])
+            store.notifyRevoked(names)
+          })
+          // A failed revoke must leave the chips alone: claiming the skills are
+          // gone when the host still holds them would be a lie.
+          .catch(() => { /* keep state; the chips stay accurate */ })
+          .finally(() => { busy = false })
+      }
+
+      const onKeyDown = (ev) => {
+        if (ev.key !== 'Enter') return
+        // Shift+Enter inserts a newline; Enter mid-composition picks a candidate.
+        if (ev.shiftKey || ev.isComposing || ev.keyCode === 229) return
+        if (!ev.target?.closest?.('[data-composer-input]')) return
+        fire()
+      }
+
+      // The primary button calls the same `keyboard.submit(mode, 'click')` path as
+      // Enter, so it must revoke too. The host gives it no data attribute, and
+      // BOTH the send and the stop button carry the same `primary` class — so the
+      // match is anchored on our own composer entry instead:
+      //   1. the clicked button must live in the same input bar as our button
+      //      (walk up from `.dsh-sc-composer` until an ancestor contains it),
+      //   2. it must look primary (class) or carry a send label,
+      //   3. it must not be the stop button (cancelling a turn is not a submit).
+      const STOP_HINT = /stop|停止|中止|取消/i
+      const SUBMIT_LABELS = new Set([
+        '发送消息', '排队发送', '插话发送', '发送',
+        'Send message', 'Send', 'Queue message', 'Send as steer', 'Steer', 'Send as follow-up',
+      ])
+      const sameInputBar = (btn) => {
+        const mine = document.querySelector('.dsh-sc-composer')
+        if (!mine) return true // cannot verify — do not block the feature
+        for (let n = mine.parentElement; n && n !== document.body; n = n.parentElement) {
+          if (n.contains(btn)) return true
+        }
+        return false
+      }
+      const onDocClick = (ev) => {
+        const btn = ev.target?.closest?.('button')
+        if (!btn || btn.disabled) return
+        const label = (btn.getAttribute('aria-label') || '').trim()
+        if (STOP_HINT.test(label)) return
+        const looksPrimary = /primary/i.test(String(btn.className || '')) || SUBMIT_LABELS.has(label)
+        if (!looksPrimary) return
+        if (!sameInputBar(btn)) return
+        fire()
+      }
+
+      // Capture phase for the key: the host's own keymap stops propagation on
+      // Enter, so a bubble-phase listener on document would never see the event.
+      document.addEventListener('keydown', onKeyDown, true)
+      document.addEventListener('click', onDocClick, true)
+      return () => {
+        document.removeEventListener('keydown', onKeyDown, true)
+        document.removeEventListener('click', onDocClick, true)
       }
     }
 
@@ -3084,10 +3208,7 @@ ${draft}`
           // useEffect throws "Rendered more hooks than during the previous
           // render", the slot's error boundary swallows it, and the whole
           // "设置 → 技能" section renders blank.
-          const useSessions = props.useSessions
-          const sessionId = typeof useSessions === 'function'
-            ? useSessions(currentSessionIdOf)
-            : undefined
+          const sessionId = useOwnSessionId(props)
           useEffect(() => {
             if (sessionId) store.setSession(sessionId)
           }, [sessionId])
@@ -3101,7 +3222,9 @@ ${draft}`
 
       register('conversation.input.right',
         { id: NS, order: 10, label: () => t('nav'), locale: NS, inject: () => ({ store, t }) },
-        (props = {}) => e(withAppliedSync(ComposerButton), { store, t }), 'composer input right')
+        // `props` must reach the wrapper: it carries `useSessions`, the only way
+        // to learn which session THIS window is showing.
+        (props = {}) => e(withAppliedSync(ComposerButton), { store, t, ...props }), 'composer input right')
     }
 
     exports.name = NS
