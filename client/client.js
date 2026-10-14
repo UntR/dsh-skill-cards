@@ -247,7 +247,13 @@ window.__ModuleLoader__.load({
 /* 扇形只变换外层，卡面、详情与业务勾选仍复用原组件。 */
 .dsh-sc-panel.has-cards { height:82vh; }
 .dsh-sc-fan { position:relative; z-index:1; min-width:0; }
-.dsh-sc-fan-hand { position:relative; touch-action:pan-y; isolation:isolate; }
+.dsh-sc-fan-hand { position:relative; touch-action:pan-y; isolation:isolate;
+  /* 点空白翻页与拖动翻页都是直接操作：光标先给出提示，拖动时不要选中卡面文字。 */
+  cursor:pointer; user-select:none; -webkit-user-select:none; }
+/* 拖动期间必须关掉过渡 —— 卡牌要逐帧跟着指针走；松手后去掉 is-dragging，
+   过渡在同一帧恢复，于是从指尖位置平滑吸附到最近的卡位。 */
+.dsh-sc-fan-hand.is-dragging { cursor:grabbing; }
+.dsh-sc-fan-hand.is-dragging .dsh-sc-fan-slot { transition:none; will-change:transform; }
 .dsh-sc-fan-slot { position:absolute; left:50%; top:20px; transform-origin:50% 100%;
   transition:transform .46s cubic-bezier(.22,.8,.25,1), opacity .3s ease; }
 .dsh-sc-fan-slot > .dsh-sc-card-wrap { height:100%; }
@@ -271,7 +277,12 @@ window.__ModuleLoader__.load({
 .dsh-sc-details-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
 .dsh-sc-details-actions button[aria-pressed=true] { border-color:var(--sc-gold); color:var(--sc-gold-hi); }
 .dsh-sc-toolbar { flex-wrap:wrap; }
-.dsh-sc-stage { overflow-x:hidden; }
+/* 卡组区（短窗口、长描述时会滚动）会滚动，但滚动条紧贴面板右内沿，视觉上割裂
+   卡面与细节区，所以隐藏轨道、保留滚动能力：滚轮 / 触控板照常，聚焦卡组区后
+   方向键、PageUp·PageDown、空格也能滚。只作用于插件自己的容器，不碰宿主设置
+   页的滚动条。 */
+.dsh-sc-stage { overflow-x:hidden; scrollbar-width:none; }
+.dsh-sc-stage::-webkit-scrollbar { width:0; height:0; display:none; }
 @media (max-width:480px) {
   .dsh-sc-backdrop { padding:8px; }
   .dsh-sc-stage { padding:10px; }
@@ -318,6 +329,8 @@ window.__ModuleLoader__.load({
   background:rgba(255,255,255,.92); border:1.5px solid var(--dsw-alias-border-l2);
   display:flex; align-items:center; justify-content:center; color:transparent; font-size:12px;
   line-height:1; box-shadow:0 1px 4px rgba(0,0,0,.20);
+  /* 角标只是状态显示：不拦截指针，点它等同于点卡面（勾选/取消）。 */
+  pointer-events:none;
   transition:background .12s ease, border-color .12s ease, color .12s ease; }
 .dsh-sc-card:hover .dsh-sc-check { border-color:var(--sc-gold,#c9a24b); }
 .dsh-sc-card.selected .dsh-sc-check { background:linear-gradient(180deg,var(--sc-gold-hi,#f0d48a),var(--sc-gold,#c9a24b));
@@ -885,7 +898,7 @@ window.__ModuleLoader__.load({
         noMatchHint: '换个关键词，或清空搜索框看全部。',
         selectAll: '全选', clear: '清空', selected: '已选', noneSelected: '未选择',
         previousCard: '上一张', nextCard: '下一张', browseCards: '浏览技能卡牌',
-        fanHint: '点击侧牌居中 · 点击中央卡勾选 · 支持方向键与左右滑动',
+        fanHint: '拖动卡牌左右滑动 · 点两侧空白翻一张 · 点中央卡勾选 · 侧牌居中 · 方向键可用',
         selectCard: '勾选技能', deselectCard: '取消勾选', favoriteCard: '设为常用', unfavoriteCard: '取消常用',
         apply: '应用到本次会话', applying: '正在应用…',
         setImage: '自定义', imgTitle: '标题', imgDesc: '描述', imageUrl: '图片 URL（可选）',
@@ -920,7 +933,7 @@ window.__ModuleLoader__.load({
         noMatchHint: 'Try another keyword, or clear the box to see everything.',
         selectAll: 'Select all', clear: 'Clear', selected: 'Selected', noneSelected: 'None selected',
         previousCard: 'Previous card', nextCard: 'Next card', browseCards: 'Browse skill cards',
-        fanHint: 'Center a side card · Click the center to select · Arrow keys or swipe to browse',
+        fanHint: 'Drag the cards or click the sides to browse · Click the center to select · Arrow keys work',
         selectCard: 'Select skill', deselectCard: 'Deselect skill', favoriteCard: 'Favorite', unfavoriteCard: 'Unfavorite',
         apply: 'Apply to this session', applying: 'Applying…',
         setImage: 'Customize', imgTitle: 'Title', imgDesc: 'Description', imageUrl: 'Image URL (optional)',
@@ -2233,19 +2246,36 @@ ${draft}`
       return { radius, cardWidth, cardHeight, step, height: Math.ceil(cardHeight + 32 + bottom + radius * radius * 6) }
     }
 
+    // 横向手势的两个阈值：越过 START 才算拖动（此前仍是点击，手抖不会吃掉勾选），
+    // 松手后在 CLICK_SLOP 内且没越过 START 的按下按点击处理。
+    const FAN_DRAG_START = 12
+    const FAN_CLICK_SLOP = 8
+    // 一次拖动最多带走几张：手指拖得再远也只走到这里，避免为了跟随而挂载整副卡组。
+    const FAN_DRAG_MAX = 3
+    // 拖动位移换算出「已经走过几个卡位」，到列表头尾或 FAN_DRAG_MAX 就顶住。
+    function clampDragUnits(units, index, total) {
+      return Math.max(-Math.min(index, FAN_DRAG_MAX), Math.min(Math.min(total - 1 - index, FAN_DRAG_MAX), units))
+    }
+
     function fanPose(offset, metrics) {
       const distance = Math.abs(offset)
       return {
         transform: `translate3d(${offset * metrics.step}px, ${distance * distance * 6}px, 0) rotate(${offset * 5}deg) scale(${1 - distance * .09})`,
-        zIndex: 20 - distance,
-        opacity: distance <= metrics.radius ? 1 : 0,
+        // offset 允许是小数（拖动中的卡位），z-index 只能是整数。
+        zIndex: Math.round(20 - distance),
+        // 整数 offset 下与原来一致（半径内 1、半径外 0）；拖动中在半径处淡出。
+        opacity: Math.max(0, Math.min(1, metrics.radius + 1 - distance)),
       }
     }
 
     function CardFan({ skills, selected, t, ...cardProps }) {
-      const [activeName, setActiveName] = useState(null)
+      // 默认把浏览焦点放在卡组正中：扇形左右各有邻牌，一打开就是完整形态，
+      // 而且两个方向都能立刻滑。焦点始终以「名字」保存，排序/过滤后仍跟着同一张卡。
+      const [activeName, setActiveName] = useState(() => (skills.length ? skills[(skills.length - 1) >> 1].name : null))
       const [size, setSize] = useState({ width: 0, height: 0, availableHeight: 0 })
       const [moving, setMoving] = useState(false)
+      // 拖动中的横向位移（px）；null 表示当前没有拖动。
+      const [dragX, setDragX] = useState(null)
       const handRef = useRef(null)
       const gesture = useRef(null)
       const suppressClick = useRef(false)
@@ -2272,6 +2302,16 @@ ${draft}`
         return () => clearTimeout(timer)
       }, [activeIndex, current?.name, size.width, size.height, size.availableHeight])
       const metrics = fanMetrics(size.width, size.height, size.availableHeight)
+      const step = metrics.step || 1
+      // 拖动位移换算成「卡位」：一格正好一个 step，于是松手时中央卡落在最近的卡位。
+      // 到列表头尾、或超过 FAN_DRAG_MAX 之后顶住不动（不做回弹，行为可预期）。
+      const dragUnits = dragX == null ? 0 : clampDragUnits(-dragX / step, activeIndex, skills.length)
+      const dragging = dragX != null
+      // 拖动中高亮跟着「将要居中的那张」走：过半就有反馈，也不会出现一张当前卡都没有的帧
+      //（.is-current 还是 reveal 动画取坐标的锚点，必须始终存在）。
+      const anchorIndex = activeIndex + (dragging ? Math.round(dragUnits) : 0)
+      // 拖动中同样视为「不稳定」：中央卡的悬浮工具栏先收起来，别在拖动里被误点。
+      const busy = dragging || moving
       const move = (delta) => {
         const next = Math.max(0, Math.min(skills.length - 1, activeIndex + delta))
         if (next !== activeIndex) setActiveName(skills[next].name)
@@ -2280,13 +2320,23 @@ ${draft}`
         if (name === current?.name) cardProps.onToggle(name)
         else setActiveName(name)
       }, [current?.name, cardProps.onToggle])
+      // 结束一次拖动：按已经走过的卡位吸附到最近的卡，并复位偏移让过渡接管。
+      const settleDrag = (dx) => {
+        setDragX(null)
+        const units = Math.round(clampDragUnits(-dx / step, activeIndex, skills.length))
+        if (units) move(units)
+      }
       if (!current) return null
       const custom = current.custom
       const title = custom?.i18n?.zh || custom?.title || current.name
       const desc = custom?.i18n?.zhDesc || custom?.description || current.description || t('origNoDesc')
+      // 拖动中多留出几张缓冲卡，跟随方向上的卡才有 DOM 节点可以一起平移。
+      const buffer = metrics.radius + 1 + (dragging ? Math.ceil(Math.abs(dragUnits)) + 1 : 0)
+      const from = Math.max(0, activeIndex - buffer)
+      const mounted = size.width > 0 ? skills.slice(from, activeIndex + buffer + 1) : []
       return e('div', { className: 'dsh-sc-fan' },
         e('div', {
-          className: 'dsh-sc-fan-hand', ref: handRef,
+          className: `dsh-sc-fan-hand${dragging ? ' is-dragging' : ''}`, ref: handRef,
           role: 'region', 'aria-label': t('browseCards'), tabIndex: 0,
           style: { height: metrics.height },
           onKeyDown: (ev) => {
@@ -2299,9 +2349,34 @@ ${draft}`
             move(ev.key === 'ArrowLeft' ? -1 : 1)
           },
           onPointerDown: (ev) => {
+            // 已经有一次按下在进行（多指同时触摸）：忽略后来者，也别清掉拖动期间的
+            // 点击抑制标记，否则松手时多出来的那次 click 会误勾选。
+            if (gesture.current) return
             suppressClick.current = false
-            if (ev.pointerType === 'mouse' || !ev.isPrimary || ev.target.closest('.dsh-sc-cardtools, .dsh-sc-cat, .dsh-sc-catpop, .dsh-sc-srcpop')) return
-            gesture.current = { id: ev.pointerId, x: ev.clientX, y: ev.clientY }
+            // 鼠标只认左键；工具按钮与卡牌弹层维持原交互，不参与拖动。
+            if (!ev.isPrimary || (ev.pointerType === 'mouse' && ev.button !== 0)) return
+            if (ev.target.closest?.('.dsh-sc-cardtools, .dsh-sc-cat, .dsh-sc-catpop, .dsh-sc-srcpop')) return
+            gesture.current = {
+              id: ev.pointerId, x: ev.clientX, y: ev.clientY,
+              // 「在卡上」= 落在任何卡位里（卡面、勾选角标都算），只有卡外的留白才算背景。
+              onCard: !!ev.target.closest?.('.dsh-sc-fan-slot'),
+            }
+          },
+          onPointerMove: (ev) => {
+            const start = gesture.current
+            if (!start || ev.pointerId !== start.id) return
+            const dx = ev.clientX - start.x
+            const dy = ev.clientY - start.y
+            if (!start.dragging) {
+              // 纵向手势交给 stage 滚动；横向位移够大才接管成拖动。
+              if (Math.abs(dx) < FAN_DRAG_START || Math.abs(dx) <= Math.abs(dy)) return
+              start.dragging = true
+              suppressClick.current = true
+              // 指针滑出手部（甚至滑出窗口）后仍要收到事件，否则拖动会半路丢失。
+              try { ev.currentTarget.setPointerCapture(ev.pointerId) } catch { /* 老引擎：退化为手部内滑动 */ }
+            }
+            start.dx = dx
+            setDragX(dx)
           },
           onPointerUp: (ev) => {
             const start = gesture.current
@@ -2309,33 +2384,49 @@ ${draft}`
             if (!start || ev.pointerId !== start.id) return
             const dx = ev.clientX - start.x
             const dy = ev.clientY - start.y
-            if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.4) return
-            suppressClick.current = true
-            move(dx < 0 ? 1 : -1)
+            if (start.dragging) { settleDrag(start.dx ?? dx); return }
+            // 指针事件被合并（快速甩动）时 move 不一定发出：按方向补一张。
+            if (Math.abs(dx) >= FAN_DRAG_START && Math.abs(dx) > Math.abs(dy)) {
+              suppressClick.current = true
+              move(dx < 0 ? 1 : -1)
+              return
+            }
+            if (Math.abs(dx) > FAN_CLICK_SLOP || Math.abs(dy) > FAN_CLICK_SLOP) return
+            // 点在卡牌之外的空白上（左右留白）：按点击的那一侧翻一张。
+            if (start.onCard) return
+            const rect = handRef.current?.getBoundingClientRect?.()
+            move(rect && ev.clientX < rect.left + rect.width / 2 ? -1 : 1)
           },
-          onPointerCancel: () => { gesture.current = null },
+          onPointerCancel: (ev) => {
+            if (gesture.current?.id !== ev.pointerId) return
+            gesture.current = null
+            setDragX(null)
+          },
+          // 捕获丢失（元素被卸载、系统接管手势）时收尾，避免卡在拖动状态。
+          onLostPointerCapture: () => { gesture.current = null; setDragX(null) },
           onClickCapture: (ev) => {
             if (!suppressClick.current) return
             suppressClick.current = false
             ev.preventDefault(); ev.stopPropagation()
           },
-        }, size.width > 0 ? skills.slice(Math.max(0, activeIndex - metrics.radius - 1), activeIndex + metrics.radius + 2).map((skill) => {
-          const offset = skills.indexOf(skill) - activeIndex
+        }, mounted.map((skill, index) => {
+          // 拖动时整副牌一起平移：小数卡位让位移/旋转/缩放连续变化，松手即可吸附。
+          const offset = from + index - activeIndex - dragUnits
           const visible = Math.abs(offset) <= metrics.radius
-          const active = offset === 0
+          const active = from + index === anchorIndex
           return e('div', {
             key: skill.name,
-            className: `dsh-sc-fan-slot${active ? ' is-current' : ''}${active && !moving ? ' is-ready' : ''}`,
+            className: `dsh-sc-fan-slot${active ? ' is-current' : ''}${active && !busy ? ' is-ready' : ''}`,
             'aria-current': active ? 'true' : undefined,
             'aria-hidden': visible ? undefined : 'true', inert: visible ? undefined : '',
             style: { width: metrics.cardWidth, height: metrics.cardHeight, marginLeft: -metrics.cardWidth / 2,
               ...fanPose(offset, metrics), pointerEvents: visible ? 'auto' : 'none' },
           }, e(Card, { ...cardProps, skill, custom: skill.custom, selected: selected.has(skill.name), t,
-            interactive: active && !moving, onToggle: browse }))
-        }) : null),
+            interactive: active && !busy, onToggle: browse }))
+        })),
         e('div', { className: 'dsh-sc-fan-nav' },
           e('button', { type: 'button', onClick: () => move(-1), disabled: activeIndex === 0, 'aria-label': t('previousCard') }, '←'),
-          e('span', { className: 'dsh-sc-fan-position', role: 'status', 'aria-live': 'polite' }, `${activeIndex + 1} / ${skills.length}`),
+          e('span', { className: 'dsh-sc-fan-position', role: 'status', 'aria-live': 'polite' }, `${anchorIndex + 1} / ${skills.length}`),
           e('button', { type: 'button', onClick: () => move(1), disabled: activeIndex === skills.length - 1, 'aria-label': t('nextCard') }, '→')),
         e('p', { className: 'dsh-sc-fan-hint' }, t('fanHint')),
         e('section', { className: 'dsh-sc-details', 'aria-label': title },

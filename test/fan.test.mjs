@@ -14,11 +14,30 @@ function functionSource(name) {
   return source.slice(start, end + '\n    }'.length)
 }
 
-const { fanMetrics, fanPose, captureCardRects } = runInNewContext(`
-  ${functionSource('fanMetrics')}
-  ${functionSource('fanPose')}
+// CardFan reads these thresholds, so they travel with it into the sandbox.
+function constSource(name) {
+  const match = source.match(new RegExp(`^\\s*const ${name} = .*$`, 'm'))
+  assert.notEqual(match, null, `${name} must exist`)
+  return match[0].trim()
+}
+
+const MODEL = [
+  constSource('FAN_DRAG_START'),
+  constSource('FAN_CLICK_SLOP'),
+  constSource('FAN_DRAG_MAX'),
+  functionSource('clampDragUnits'),
+  functionSource('fanMetrics'),
+  functionSource('fanPose'),
+].join('\n')
+
+const { fanMetrics, fanPose, clampDragUnits, FAN_DRAG_MAX } = runInNewContext(`
+  ${MODEL}
+  ({ fanMetrics, fanPose, clampDragUnits, FAN_DRAG_MAX })
+`)
+
+const { captureCardRects } = runInNewContext(`
   ${functionSource('captureCardRects')}
-  ({ fanMetrics, fanPose, captureCardRects })
+  ({ captureCardRects })
 `)
 
 function transformParts(pose) {
@@ -30,7 +49,9 @@ function transformParts(pose) {
 // Transform the rectangle's four corners using the actual CSS origin and top
 // inset. This independently catches bounds errors in the sizing helper.
 function cardCorners(width, metrics, pose) {
-  const slotRule = source.match(/\.dsh-sc-fan-slot \{([^}]+)\}/)[1]
+  // Anchored at the line start so the .is-dragging override of the same class
+  // (which carries no geometry) cannot be picked up instead.
+  const slotRule = source.match(/^\.dsh-sc-fan-slot \{([^}]+)\}/m)[1]
   const top = Number(slotRule.match(/top:([\d.]+)px/)[1])
   assert.match(slotRule, /transform-origin:50% 100%/)
   const { x, y, angle, scale } = transformParts(pose)
@@ -117,6 +138,16 @@ function byClass(tree, name) {
   return descendants(tree).filter((node) => node.props?.className?.split(' ').includes(name))
 }
 
+// One pointer event, as the hand's handlers read them: `onCard` decides whether
+// the press landed on a card slot or on the empty gutter around the fan.
+function pointerEvent(clientX, clientY, { pointerType = 'touch', onCard = false, pointerId = 11, isPrimary = true } = {}) {
+  return {
+    pointerType, button: 0, isPrimary, pointerId, clientX, clientY,
+    target: { closest: (selector) => (onCard && selector === '.dsh-sc-fan-slot' ? {} : null) },
+    currentTarget: { setPointerCapture() {} },
+  }
+}
+
 // A small hook runner renders CardFan itself, preserving state, effect cleanup
 // and refs across user actions. Cards remain opaque so this tests the fan's
 // integration contract rather than recreating the entire host application.
@@ -171,8 +202,7 @@ function mountFan(skills, { width = 1000, height = 900, selected = new Set() } =
     },
   }
   const CardFan = runInNewContext(`
-    ${functionSource('fanMetrics')}
-    ${functionSource('fanPose')}
+    ${MODEL}
     ${functionSource('CardFan')}
     CardFan
   `, scope)
@@ -188,7 +218,13 @@ function mountFan(skills, { width = 1000, height = 900, selected = new Set() } =
       cursor = 0
       tree = CardFan(props)
       for (const node of descendants(tree)) {
-        if (node.props.ref && !node.props.ref.current) node.props.ref.current = { get clientWidth() { return width } }
+        if (node.props.ref && !node.props.ref.current) {
+          node.props.ref.current = {
+            get clientWidth() { return width },
+            // 点空白翻页按手部矩形的左右半区判断方向。
+            getBoundingClientRect: () => ({ left: 0, top: 0, width, height: 1 }),
+          }
+        }
       }
       while (effects.length) effects.shift()()
       if (!dirty) return tree
@@ -238,12 +274,24 @@ test('the fan bounds mounted cards and makes transparent buffers noninteractive'
   }
 })
 
+test('the fan opens with the middle card centered, whatever the library size', () => {
+  assert.equal(mountFan(skills(1)).current, 'skill-0')
+  assert.equal(mountFan(skills(2)).current, 'skill-0')
+  assert.equal(mountFan(skills(3)).current, 'skill-1')
+  assert.equal(mountFan(skills(4)).current, 'skill-1')
+  // 95 张卡里居中的是第 47 张（0 起算），两侧各 47 张，扇形左右对称。
+  const fan = mountFan(skills(95))
+  assert.equal(fan.current, 'skill-47')
+  assert.deepEqual(fan.nav.map((button) => button.props.disabled), [false, false],
+    'opening in the middle must leave both directions available')
+})
+
 test('first and last cards clamp navigation, including a single-card result', () => {
   const fan = mountFan(skills(3))
-  assert.equal(fan.current, 'skill-0')
-  assert.equal(fan.nav[0].props.disabled, true)
+  assert.equal(fan.current, 'skill-1')
   fan.step(-1)
   assert.equal(fan.current, 'skill-0')
+  assert.equal(fan.nav[0].props.disabled, true)
   fan.step(1)
   fan.step(1)
   assert.equal(fan.current, 'skill-2')
@@ -262,7 +310,8 @@ test('first and last cards clamp navigation, including a single-card result', ()
 test('reordering retains the browsed skill while filtering safely chooses a remaining card', () => {
   const list = skills(5)
   const fan = mountFan(list)
-  fan.clickCard('skill-2')
+  // 默认居中在第 2 张（5 张的正中），排序后仍要跟着同一张卡。
+  assert.equal(fan.current, 'skill-2')
   fan.render({ skills: [...list].reverse() })
   assert.equal(fan.current, 'skill-2', 'sort changes should preserve identity')
   fan.render({ skills: [list[4], list[1]] })
@@ -274,40 +323,147 @@ test('reordering retains the browsed skill while filtering safely chooses a rema
 test('browsing leaves business multi-selection intact and details target the current card', () => {
   const selected = new Set(['skill-0', 'skill-90'])
   const fan = mountFan(skills(95), { selected })
-  fan.clickCard('skill-2')
+  assert.equal(fan.current, 'skill-47')
+  fan.clickCard('skill-48')
   fan.step(1)
-  assert.equal(fan.current, 'skill-3')
+  assert.equal(fan.current, 'skill-49')
   assert.deepEqual([...selected], ['skill-0', 'skill-90'])
   assert.deepEqual(fan.toggled, [])
   fan.details[0].props.onClick()
   fan.render()
-  assert.deepEqual(fan.toggled, ['skill-3'])
-  assert.ok(selected.has('skill-3'))
+  assert.deepEqual(fan.toggled, ['skill-49'])
+  assert.ok(selected.has('skill-49'))
   assert.ok(selected.has('skill-90'), 'an unmounted selected skill must remain selected')
-  fan.clickCard('skill-3')
-  assert.ok(!selected.has('skill-3'), 'clicking the central face retains the existing toggle action')
-  const current = fan.slots.find((slot) => slot.children[0].props.skill.name === 'skill-3')
+  fan.clickCard('skill-49')
+  assert.ok(!selected.has('skill-49'), 'clicking the central face retains the existing toggle action')
+  const current = fan.slots.find((slot) => slot.children[0].props.skill.name === 'skill-49')
   assert.equal(current.children[0].props.selected, false)
 })
 
 test('horizontal touch swipes browse once without toggling, while vertical gestures do not browse', () => {
   const fan = mountFan(skills(10))
-  const target = { closest: () => null }
   let hand = byClass(fan.tree, 'dsh-sc-fan-hand')[0]
-  hand.props.onPointerDown({ pointerType: 'touch', isPrimary: true, pointerId: 1, clientX: 180, clientY: 100, target })
-  hand.props.onPointerUp({ pointerId: 1, clientX: 80, clientY: 110 })
+  hand.props.onPointerDown(pointerEvent(180, 100))
+  hand.props.onPointerUp(pointerEvent(80, 110))
   fan.render()
-  assert.equal(fan.current, 'skill-1')
+  assert.equal(fan.current, 'skill-5')
   assert.deepEqual(fan.toggled, [])
   let prevented = false
   let stopped = false
   hand = byClass(fan.tree, 'dsh-sc-fan-hand')[0]
   hand.props.onClickCapture({ preventDefault() { prevented = true }, stopPropagation() { stopped = true } })
   assert.ok(prevented && stopped, 'the synthetic click following a swipe must be swallowed')
-  hand.props.onPointerDown({ pointerType: 'touch', isPrimary: true, pointerId: 2, clientX: 180, clientY: 100, target })
-  hand.props.onPointerUp({ pointerId: 2, clientX: 130, clientY: 250 })
+  hand.props.onPointerDown(pointerEvent(180, 100))
+  hand.props.onPointerUp(pointerEvent(130, 250))
+  fan.render()
+  assert.equal(fan.current, 'skill-5')
+})
+
+test('a drag on the card follows the pointer and snaps to the nearest position', () => {
+  const width = 1000
+  const { step } = fanMetrics(width, 900, 900)
+  const fan = mountFan(skills(9), { width, height: 900 })
+  const hand = () => byClass(fan.tree, 'dsh-sc-fan-hand')[0]
+  assert.equal(fan.current, 'skill-4')
+  // 起手在中央卡面（鼠标也要能拖 —— 旧实现直接忽略了鼠标拖动）。
+  hand().props.onPointerDown(pointerEvent(500, 300, { pointerType: 'mouse', onCard: true }))
+  hand().props.onPointerMove(pointerEvent(500 - step * 1.2, 302))
+  fan.render()
+  assert.ok(byClass(fan.tree, 'dsh-sc-fan-hand')[0].props.className.includes('is-dragging'),
+    'the hand must expose the dragging state so CSS can drop the transition')
+  const centered = fan.slots.find((slot) => slot.children[0].props.skill.name === 'skill-4')
+  assert.ok(Math.abs(transformParts(centered.props.style).x + step * 1.2) < 1e-6,
+    'the browsed card must follow the pointer while dragging')
+  // 拖动过半后高亮（is-current）已移向吸附目标（reveal 动画取坐标的锚点必须一直在）
+  assert.equal(byClass(fan.tree, 'is-current')[0].children[0].props.skill.name, 'skill-5')
+  // 多指同时按下：后来者不得清掉点击抑制，否则松手那次 click 会误勾选。
+  byClass(fan.tree, 'dsh-sc-fan-hand')[0].props.onPointerDown(
+    pointerEvent(700, 320, { pointerId: 22, isPrimary: false }))
+  // 拖过 1.2 格：松手吸附到 1 格之后的卡，并清除拖动状态。
+  hand().props.onPointerUp(pointerEvent(500 - step * 1.2, 302))
+  fan.render()
+  assert.equal(fan.current, 'skill-5')
+  assert.ok(!byClass(fan.tree, 'dsh-sc-fan-hand')[0].props.className.includes('is-dragging'))
+  assert.deepEqual(fan.toggled, [], 'dragging is browsing, never selecting')
+  // 拖动后的那次合成 click 必须被吞掉，且要点空白才知道高亮回到中央。
+  let prevented = false
+  byClass(fan.tree, 'dsh-sc-fan-hand')[0].props.onClickCapture(
+    { preventDefault() { prevented = true }, stopPropagation() {} })
+  assert.ok(prevented, 'the synthetic click after a drag must be swallowed')
+})
+
+test('a press that barely moves stays a click, and dragging sticks to the list ends', () => {
+  const width = 1000
+  const { step } = fanMetrics(width, 900, 900)
+  const fan = mountFan(skills(3), { width, height: 900 })
+  const hand = () => byClass(fan.tree, 'dsh-sc-fan-hand')[0]
+  // 手抖 5px 不算拖动：随后的点击必须照常勾选。
+  hand().props.onPointerDown(pointerEvent(500, 300, { onCard: true }))
+  hand().props.onPointerMove(pointerEvent(505, 302))
+  hand().props.onPointerUp(pointerEvent(505, 302))
   fan.render()
   assert.equal(fan.current, 'skill-1')
+  let prevented = false
+  hand().props.onClickCapture({ preventDefault() { prevented = true }, stopPropagation() {} })
+  assert.equal(prevented, false, 'a wobble must not swallow the card click')
+  // 纵向手势交给滚动，不翻牌。
+  hand().props.onPointerDown(pointerEvent(500, 100, { onCard: true }))
+  hand().props.onPointerMove(pointerEvent(520, 260))
+  fan.render()
+  assert.ok(!byClass(fan.tree, 'dsh-sc-fan-hand')[0].props.className.includes('is-dragging'),
+    'a vertical gesture must not turn into a drag')
+  hand().props.onPointerUp(pointerEvent(520, 260))
+  fan.render()
+  assert.equal(fan.current, 'skill-1')
+  // 已经在头一张：往右拖到底顶住，松手也不越界。
+  fan.step(-1)
+  assert.equal(fan.current, 'skill-0')
+  const edge = () => byClass(fan.tree, 'dsh-sc-fan-hand')[0]
+  edge().props.onPointerDown(pointerEvent(500, 300, { onCard: true }))
+  edge().props.onPointerMove(pointerEvent(500 + step * 3, 300))
+  fan.render()
+  const first = fan.slots.find((slot) => slot.children[0].props.skill.name === 'skill-0')
+  assert.equal(transformParts(first.props.style).x, 0, 'the first card must not be dragged past the edge')
+  byClass(fan.tree, 'dsh-sc-fan-hand')[0].props.onPointerUp(pointerEvent(500 + step * 3, 300))
+  fan.render()
+  assert.equal(fan.current, 'skill-0')
+  assert.deepEqual(fan.toggled, [])
+})
+
+test('clicking the empty gutter around the fan browses one card toward that side', () => {
+  const fan = mountFan(skills(9), { width: 1000, height: 900 })
+  const click = (clientX) => {
+    const hand = () => byClass(fan.tree, 'dsh-sc-fan-hand')[0]
+    hand().props.onPointerDown(pointerEvent(clientX, 300))
+    hand().props.onPointerUp(pointerEvent(clientX, 300))
+    return fan.render()
+  }
+  assert.equal(fan.current, 'skill-4')
+  click(20)
+  assert.equal(fan.current, 'skill-3', 'the left half steps back')
+  click(980)
+  assert.equal(fan.current, 'skill-4', 'the right half steps forward')
+  click(400)
+  assert.equal(fan.current, 'skill-3')
+  assert.deepEqual(fan.toggled, [], 'gutter clicks are browsing, never selecting')
+})
+
+test('dragging inside the mount window keeps every followed card mounted', () => {
+  // 拖动时缓冲卡要跟着扩展，否则跟随方向上的牌会中途"消失"。
+  const width = 520
+  const metrics = fanMetrics(width, 900, 900)
+  const fan = mountFan(skills(30), { width, height: 900 })
+  const hand = () => byClass(fan.tree, 'dsh-sc-fan-hand')[0]
+  const before = fan.slots.length
+  hand().props.onPointerDown(pointerEvent(260, 300, { onCard: true }))
+  hand().props.onPointerMove(pointerEvent(260 - metrics.step * (FAN_DRAG_MAX + 1), 300))
+  fan.render()
+  assert.equal(Math.round(clampDragUnits(FAN_DRAG_MAX + 1, 14, 30)), FAN_DRAG_MAX,
+    'a long drag is capped so it cannot mount the whole library')
+  assert.ok(fan.slots.length >= before + FAN_DRAG_MAX,
+    `dragging must mount the incoming cards (${before} → ${fan.slots.length})`)
+  // 缓冲只随被夹住的拖动距离增长：两侧各 (radius+1) + 拖动格数 + 1。
+  assert.ok(fan.slots.length <= 2 * (metrics.radius + FAN_DRAG_MAX + 2) + 1)
 })
 
 test('reveal captures mounted cards and uses the center for unmounted selected skills', () => {
